@@ -2253,8 +2253,15 @@ void Door_Draw_Helper4(uint8 door_type, uint16 dsto) {
   }
 }
 
-const uint16 *GetRoomDoorInfo(int room) {
-  return (uint16 *)(kDungeonRoom + kDungeonRoomDoorOffs[room]);
+const uint8 *GetRoomDoorInfo(int room) {
+  return kDungeonRoom + kDungeonRoomDoorOffs[room];
+}
+
+/* Door lists are packed into the room blob and about half of them start on an
+ * odd address. A halfword load from there is wrong on the DS, so the door
+ * behind Link never matches the room he just left and the shutter stays shut. */
+static uint16 DoorInfoWord(const uint8 *p) {
+  return p[0] | p[1] << 8;
 }
 
 const uint8 *GetRoomHeaderPtr(int room) {
@@ -3727,10 +3734,10 @@ void Dungeon_LoadHeader() {  // 81b564
   dung_savegame_state_bits = (x & 0xff0) << 4;
   dung_quadrants_visited = x & 0xf;
 
-  const uint16 *dp = GetRoomDoorInfo(dungeon_room_index);
+  const uint8 *dp = GetRoomDoorInfo(dungeon_room_index);
   int i = 0;
-  for (; dp[i] != 0xffff; i++)
-    dung_door_tilemap_address[i] = dp[i];
+  for (; DoorInfoWord(dp) != 0xffff; dp += 2, i++)
+    dung_door_tilemap_address[i] = DoorInfoWord(dp);
   dung_door_tilemap_address[i] = 0;
 
   if (((dungeon_room_index - 1) & 0xf) != 0xf)
@@ -3788,10 +3795,10 @@ void Dungeon_CheckAdjacentRoomsForOpenDoors(int idx, int room) {  // 81b759
 }
 
 void Dungeon_LoadAdjacentRoomDoors(int room) {  // 81b7ef
-  const uint16 *dp = GetRoomDoorInfo(room);
+  const uint8 *dp = GetRoomDoorInfo(room);
   adjacent_doors_flags = (save_dung_info[room] & 0xf000) | 0xf00;
-  for (int i = 0; ; i++) {
-    uint16 a = dp[i];
+  for (int i = 0; ; i++, dp += 2) {
+    uint16 a = DoorInfoWord(dp);
     adjacent_doors[i] = a;
     if (a == 0xffff)
       break;

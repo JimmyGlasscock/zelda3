@@ -71,7 +71,7 @@ void Door_Down_EntranceDoor(uint16 dsto);
 void Door_Left_EntranceDoor(uint16 dsto);
 void Door_Right_EntranceDoor(uint16 dsto);
 void Door_Draw_Helper4(uint8 door_type, uint16 dsto);
-const uint16 *GetRoomDoorInfo(int room);
+const uint8 *GetRoomDoorInfo(int room);
 const uint8 *GetRoomHeaderPtr(int room);
 const uint8 *GetDefaultRoomLayout(int i);
 const uint8 *GetDungeonRoomLayout(int i);
