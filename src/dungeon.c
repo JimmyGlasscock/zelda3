@@ -5602,7 +5602,7 @@ void RevealPotItem(uint16 pos6, uint16 pos4) {  // 81e6b2
 
   int index = 0;
   for (;;) {
-    uint16 test_pos = *(uint16 *)src_ptr;
+    uint16 test_pos = WORD(src_ptr[0]);
     if (test_pos == 0xffff)
       return;
     assert(!(test_pos & 0x8000));
@@ -5736,7 +5736,7 @@ uint8 OpenChestForItem(uint8 tile, int *chest_position) {  // 81eb66
     int i;
     chest_data = kDungeonRoomChests;
     for (i = 0; i < kDungeonRoomChests_SIZE; i += 3, chest_data += 3) {
-      chest_room = *(uint16 *)chest_data;
+      chest_room = WORD(chest_data[0]);
       if ((chest_room & 0x7fff) == dungeon_room_index && --chest_idx < 0) {
         data = chest_data[2];
         if (chest_room & 0x8000) {

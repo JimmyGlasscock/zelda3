@@ -3564,7 +3564,7 @@ fail:
 
   const uint8 *ptr = kOverworldSecrets + kOverworldSecrets_Offs[overworld_screen_index];
   for (;;) {
-    uint16 x = *(uint16 *)ptr;
+    uint16 x = WORD(ptr[0]);
     if (x == 0xffff)
       goto fail;
     if ((x & 0x7fff) == pos)
