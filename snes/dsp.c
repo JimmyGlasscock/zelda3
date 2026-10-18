@@ -18,7 +18,7 @@ static const int rateValues[32] = {
   10, 8, 6, 5, 4, 3, 2, 1
 };
 
-static const int gaussValues[512] = {
+static const int16_t gaussValues[512] = {
   0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000,
   0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x002, 0x002, 0x002, 0x002, 0x002,
   0x002, 0x002, 0x003, 0x003, 0x003, 0x003, 0x003, 0x004, 0x004, 0x004, 0x004, 0x004, 0x005, 0x005, 0x005, 0x005,
@@ -53,12 +53,18 @@ static const int gaussValues[512] = {
   0x513, 0x514, 0x514, 0x515, 0x516, 0x516, 0x517, 0x517, 0x517, 0x518, 0x518, 0x518, 0x518, 0x518, 0x519, 0x519
 };
 
-static void dsp_cycleChannel(Dsp* dsp, int ch);
+static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch);
 static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR);
-static void dsp_handleGain(Dsp* dsp, int ch);
-static void dsp_decodeBrr(Dsp* dsp, int ch);
-static int16_t dsp_getSample(Dsp* dsp, int ch, int sampleNum, int offset);
+static void dsp_handleGain(Dsp* dsp, int ch) __attribute__((noinline));
+static void dsp_decodeBrr(Dsp* dsp, int ch) __attribute__((noinline));
+static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset);
 static void dsp_handleNoise(Dsp* dsp);
+
+static int dsp_clamp16(int v) {
+  if (v < -0x8000) return -0x8000;
+  if (v > 0x7fff) return 0x7fff;
+  return v;
+}
 
 Dsp* dsp_init(uint8_t *apu_ram) {
   Dsp* dsp = (Dsp*)malloc(sizeof(Dsp));
@@ -132,17 +138,21 @@ void dsp_saveload(Dsp *dsp, SaveLoadFunc *func, void *ctx) {
 void dsp_cycle(Dsp* dsp) {
   int totalL = 0;
   int totalR = 0;
-  for(int i = 0; i < 8; i++) {
-    dsp_cycleChannel(dsp, i);
-    totalL += (dsp->channel[i].sampleOut * dsp->channel[i].volumeL) >> 6;
-    totalR += (dsp->channel[i].sampleOut * dsp->channel[i].volumeR) >> 6;
-    totalL = totalL < -0x8000 ? -0x8000 : (totalL > 0x7fff ? 0x7fff : totalL); // clamp 16-bit
-    totalR = totalR < -0x8000 ? -0x8000 : (totalR > 0x7fff ? 0x7fff : totalR); // clamp 16-bit
+  DspChannel* c = dsp->channel;
+  /* A released voice at zero gain contributes silence. Key-on restarts
+   * the sample in dsp_write, so skipping the pitch walk does not change
+   * the next note. */
+#pragma GCC unroll 1
+  for(int i = 0; i < 8; i++, c++) {
+    if (!dsp->reset && c->adsrState == 4 && c->gain == 0 && !c->keyOn)
+      c->sampleOut = 0;
+    else
+      dsp_cycleChannel(dsp, c, i);
+    totalL = dsp_clamp16(totalL + ((c->sampleOut * c->volumeL) >> 6));
+    totalR = dsp_clamp16(totalR + ((c->sampleOut * c->volumeR) >> 6));
   }
-  totalL = (totalL * dsp->masterVolumeL) >> 7;
-  totalR = (totalR * dsp->masterVolumeR) >> 7;
-  totalL = totalL < -0x8000 ? -0x8000 : (totalL > 0x7fff ? 0x7fff : totalL); // clamp 16-bit
-  totalR = totalR < -0x8000 ? -0x8000 : (totalR > 0x7fff ? 0x7fff : totalR); // clamp 16-bit
+  totalL = dsp_clamp16((totalL * dsp->masterVolumeL) >> 7);
+  totalR = dsp_clamp16((totalR * dsp->masterVolumeR) >> 7);
   dsp_handleEcho(dsp, &totalL, &totalR);
   if(dsp->mute) {
     totalL = 0;
@@ -221,66 +231,66 @@ static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR) {
   }
 }
 
-static void dsp_cycleChannel(Dsp* dsp, int ch) {
+static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch) {
   // handle pitch counter
-  uint16_t pitch = dsp->channel[ch].pitch;
-  if(ch > 0 && dsp->channel[ch].pitchModulation) {
-    int factor = (dsp->channel[ch - 1].sampleOut >> 4) + 0x400;
+  uint16_t pitch = c->pitch;
+  if(ch > 0 && c->pitchModulation) {
+    int factor = (c[-1].sampleOut >> 4) + 0x400;
     pitch = (pitch * factor) >> 10;
     if(pitch > 0x3fff) pitch = 0x3fff;
   }
-  int newCounter = dsp->channel[ch].pitchCounter + pitch;
+  int newCounter = c->pitchCounter + pitch;
   if(newCounter > 0xffff) {
     // next sample
     dsp_decodeBrr(dsp, ch);
   }
-  dsp->channel[ch].pitchCounter = newCounter;
+  c->pitchCounter = newCounter;
   int16_t sample = 0;
-  if(dsp->channel[ch].useNoise) {
+  if(c->useNoise) {
     sample = dsp->noiseSample;
   } else {
-    sample = dsp_getSample(dsp, ch, dsp->channel[ch].pitchCounter >> 12, (dsp->channel[ch].pitchCounter >> 4) & 0xff);
+    sample = dsp_getSample(dsp, c, c->pitchCounter >> 12, (c->pitchCounter >> 4) & 0xff);
   }
 #if !MY_CHANGES
   if(dsp->evenCycle) {
     // handle keyon/off (every other cycle)
-    if(dsp->channel[ch].keyOff) {
+    if(c->keyOff) {
       // go to release
-      dsp->channel[ch].adsrState = 4;
-    } else if(dsp->channel[ch].keyOn) {
-      dsp->channel[ch].keyOn = false;
+      c->adsrState = 4;
+    } else if(c->keyOn) {
+      c->keyOn = false;
       // restart current sample
-      dsp->channel[ch].previousFlags = 0;
-      uint16_t samplePointer = dsp->dirPage + 4 * dsp->channel[ch].srcn;
-      dsp->channel[ch].decodeOffset = dsp->apu_ram[samplePointer];
-      dsp->channel[ch].decodeOffset |= dsp->apu_ram[(samplePointer + 1) & 0xffff] << 8;
-      memset(dsp->channel[ch].decodeBuffer, 0, sizeof(dsp->channel[ch].decodeBuffer));
-      dsp->channel[ch].gain = 0;
-      dsp->channel[ch].adsrState = dsp->channel[ch].useGain ? 3 : 0;
+      c->previousFlags = 0;
+      uint16_t samplePointer = dsp->dirPage + 4 * c->srcn;
+      c->decodeOffset = dsp->apu_ram[samplePointer];
+      c->decodeOffset |= dsp->apu_ram[(samplePointer + 1) & 0xffff] << 8;
+      memset(c->decodeBuffer, 0, sizeof(c->decodeBuffer));
+      c->gain = 0;
+      c->adsrState = c->useGain ? 3 : 0;
     }
   }
 #endif
   // handle reset
   if(dsp->reset) {
-    dsp->channel[ch].adsrState = 4;
-    dsp->channel[ch].gain = 0;
+    c->adsrState = 4;
+    c->gain = 0;
   }
   // handle envelope/adsr
-  bool doingDirectGain = dsp->channel[ch].adsrState != 4 && dsp->channel[ch].useGain && dsp->channel[ch].directGain;
-  uint16_t rate = dsp->channel[ch].adsrState == 4 ? 0 : dsp->channel[ch].adsrRates[dsp->channel[ch].adsrState];
-  if(dsp->channel[ch].adsrState != 4 && !doingDirectGain && rate != 0) {
-    dsp->channel[ch].rateCounter++;
+  bool doingDirectGain = c->adsrState != 4 && c->useGain && c->directGain;
+  uint16_t rate = c->adsrState == 4 ? 0 : c->adsrRates[c->adsrState];
+  if(c->adsrState != 4 && !doingDirectGain && rate != 0) {
+    c->rateCounter++;
   }
-  if(dsp->channel[ch].adsrState == 4 || (!doingDirectGain && dsp->channel[ch].rateCounter >= rate && rate != 0)) {
-    if(dsp->channel[ch].adsrState != 4) dsp->channel[ch].rateCounter = 0;
+  if(c->adsrState == 4 || (!doingDirectGain && c->rateCounter >= rate && rate != 0)) {
+    if(c->adsrState != 4) c->rateCounter = 0;
     dsp_handleGain(dsp, ch);
   }
-  if(doingDirectGain) dsp->channel[ch].gain = dsp->channel[ch].gainValue;
+  if(doingDirectGain) c->gain = c->gainValue;
   // set outputs
-  dsp->ram[(ch << 4) | 8] = dsp->channel[ch].gain >> 4;
-  sample = (sample * dsp->channel[ch].gain) >> 11;
+  dsp->ram[(ch << 4) | 8] = c->gain >> 4;
+  sample = (sample * c->gain) >> 11;
   dsp->ram[(ch << 4) | 9] = sample >> 7;
-  dsp->channel[ch].sampleOut = sample;
+  c->sampleOut = sample;
 }
 
 static void dsp_handleGain(Dsp* dsp, int ch) {
@@ -335,11 +345,12 @@ static void dsp_handleGain(Dsp* dsp, int ch) {
   }
 }
 
-static int16_t dsp_getSample(Dsp* dsp, int ch, int sampleNum, int offset) {
-  int16_t news = dsp->channel[ch].decodeBuffer[sampleNum + 3];
-  int16_t olds = dsp->channel[ch].decodeBuffer[sampleNum + 2];
-  int16_t olders = dsp->channel[ch].decodeBuffer[sampleNum + 1];
-  int16_t oldests = dsp->channel[ch].decodeBuffer[sampleNum];
+static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset) {
+  int16_t news = c->decodeBuffer[sampleNum + 3];
+  int16_t olds = c->decodeBuffer[sampleNum + 2];
+  int16_t olders = c->decodeBuffer[sampleNum + 1];
+  int16_t oldests = c->decodeBuffer[sampleNum];
+  (void)dsp;
   int out = (gaussValues[0xff - offset] * oldests) >> 10;
   out += (gaussValues[0x1ff - offset] * olders) >> 10;
   out += (gaussValues[0x100 + offset] * olds) >> 10;

@@ -406,12 +406,20 @@ void zelda_apu_write(uint32_t adr, uint8_t val) {
   g_apu_write.ports[adr & 0x3] = val;
 }
 
+/* The DS ARM7 mixer copies each command out of this queue. A PC build
+ * keeps the empty definition. */
+__attribute__((weak)) void ZeldaAudioNotePush(const uint8 *ports)
+{
+  (void)ports;
+}
+
 void ZeldaPushApuState() {
   ZeldaApuLock();
   g_apu_write_ents[g_apu_write_ent_pos++ & 0xf] = g_apu_write;
   if (g_apu_write_count < 16)
     g_apu_write_count++;
   g_apu_total_write++;
+  ZeldaAudioNotePush(g_apu_write.ports);
   ZeldaApuUnlock();
 }
 
