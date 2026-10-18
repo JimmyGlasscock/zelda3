@@ -16,5 +16,6 @@ void ZeldaDiscardUnusedAudioFrames();
 void ZeldaRestoreMusicAfterLoad_Locked(bool is_reset);
 void ZeldaSaveMusicStateToRam_Locked();
 void ZeldaPushApuState();
+void ZeldaPopApuState();
 
 #endif  // ZELDA3_AUDIO_H_

@@ -11,6 +11,8 @@
 
 #define MY_CHANGES 1
 
+uint8_t dsp_voice_epoch[8];
+
 static const int rateValues[32] = {
   0, 2048, 1536, 1280, 1024, 768, 640, 512,
   384, 320, 256, 192, 160, 128, 96, 80,
@@ -18,7 +20,12 @@ static const int rateValues[32] = {
   10, 8, 6, 5, 4, 3, 2, 1
 };
 
+#ifdef ARM7
+__attribute__((used))
+const int16_t gaussValues[512] = {
+#else
 static const int16_t gaussValues[512] = {
+#endif
   0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000, 0x000,
   0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x001, 0x002, 0x002, 0x002, 0x002, 0x002,
   0x002, 0x002, 0x003, 0x003, 0x003, 0x003, 0x003, 0x004, 0x004, 0x004, 0x004, 0x004, 0x005, 0x005, 0x005, 0x005,
@@ -53,18 +60,33 @@ static const int16_t gaussValues[512] = {
   0x513, 0x514, 0x514, 0x515, 0x516, 0x516, 0x517, 0x517, 0x517, 0x518, 0x518, 0x518, 0x518, 0x518, 0x519, 0x519
 };
 
-static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch);
-static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR);
-static void dsp_handleGain(Dsp* dsp, int ch) __attribute__((noinline));
-static void dsp_decodeBrr(Dsp* dsp, int ch) __attribute__((noinline));
-static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset);
-static void dsp_handleNoise(Dsp* dsp);
-
 static int dsp_clamp16(int v) {
   if (v < -0x8000) return -0x8000;
   if (v > 0x7fff) return 0x7fff;
   return v;
 }
+
+/* Last operand is Rs, so an 8-bit coefficient finishes the ARM7 multiply early. */
+#if defined(ARM7)
+static inline int dsp_mul_coeff(int sample, int coeff) {
+  int rd;
+  __asm__("mul %0, %1, %2" : "=&r"(rd) : "r"(sample), "r"(coeff));
+  return rd;
+}
+#else
+static inline int dsp_mul_coeff(int sample, int coeff) {
+  return sample * coeff;
+}
+#endif
+
+#ifndef ARM7
+static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch);
+static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset);
+#endif
+static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR, int inL, int inR);
+static void dsp_handleGain(Dsp* dsp, int ch) __attribute__((noinline));
+static void dsp_decodeBrr(Dsp* dsp, int ch) __attribute__((noinline));
+static void dsp_handleNoise(Dsp* dsp);
 
 Dsp* dsp_init(uint8_t *apu_ram) {
   Dsp* dsp = (Dsp*)malloc(sizeof(Dsp));
@@ -77,6 +99,7 @@ void dsp_free(Dsp* dsp) {
 }
 
 void dsp_reset(Dsp* dsp) {
+  memset(dsp_voice_epoch, 0, sizeof(dsp_voice_epoch));
   memset(dsp->ram, 0, sizeof(dsp->ram));
   dsp->ram[ENDX] = 0xff; // set ENDX bit for all channels
   for(int i = 0; i < 8; i++) {
@@ -135,6 +158,7 @@ void dsp_saveload(Dsp *dsp, SaveLoadFunc *func, void *ctx) {
   func(ctx, &dsp->ram, sizeof(Dsp) - offsetof(Dsp, ram));
 }
 
+#ifndef ARM7
 void dsp_cycle(Dsp* dsp) {
   int totalL = 0;
   int totalR = 0;
@@ -153,7 +177,16 @@ void dsp_cycle(Dsp* dsp) {
   }
   totalL = dsp_clamp16((totalL * dsp->masterVolumeL) >> 7);
   totalR = dsp_clamp16((totalR * dsp->masterVolumeR) >> 7);
-  dsp_handleEcho(dsp, &totalL, &totalR);
+  {
+    int echoL = 0, echoR = 0;
+    for (int i = 0; i < 8; i++) {
+      if (dsp->channel[i].echoEnable) {
+        echoL = dsp_clamp16(echoL + ((dsp->channel[i].sampleOut * dsp->channel[i].volumeL) >> 6));
+        echoR = dsp_clamp16(echoR + ((dsp->channel[i].sampleOut * dsp->channel[i].volumeR) >> 6));
+      }
+    }
+    dsp_handleEcho(dsp, &totalL, &totalR, echoL, echoR);
+  }
   if(dsp->mute) {
     totalL = 0;
     totalR = 0;
@@ -167,46 +200,50 @@ void dsp_cycle(Dsp* dsp) {
   }
   dsp->evenCycle = !dsp->evenCycle;
 }
+#endif
 
-static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR) {
+static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR, int inL, int inR)
+    __attribute__((noinline));
+
+static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR, int inL, int inR) {
   // get value out of ram
-  uint16_t adr = dsp->echoBufferAdr + dsp->echoBufferIndex * 4;
-  dsp->firBufferL[dsp->firBufferIndex] = (
-    dsp->apu_ram[adr] + (dsp->apu_ram[(adr + 1) & 0xffff] << 8)
-  );
-  dsp->firBufferL[dsp->firBufferIndex] >>= 1;
-  dsp->firBufferR[dsp->firBufferIndex] = (
-    dsp->apu_ram[(adr + 2) & 0xffff] + (dsp->apu_ram[(adr + 3) & 0xffff] << 8)
-  );
-  dsp->firBufferR[dsp->firBufferIndex] >>= 1;
+  uint16_t adr = (uint16_t)(dsp->echoBufferAdr + dsp->echoBufferIndex * 4);
+  int16_t histL, histR;
+  /* SPC RAM is 2-byte aligned, so the delay line is a pair of halfwords. */
+  if (adr <= 0xfffc && (((uintptr_t)(dsp->apu_ram + adr) & 1) == 0)) {
+    int16_t *p = (int16_t *)(dsp->apu_ram + adr);
+    histL = p[0];
+    histR = p[1];
+  } else {
+    histL = (int16_t)(dsp->apu_ram[adr] + (dsp->apu_ram[(adr + 1) & 0xffff] << 8));
+    histR = (int16_t)(dsp->apu_ram[(adr + 2) & 0xffff] + (dsp->apu_ram[(adr + 3) & 0xffff] << 8));
+  }
+  dsp->firBufferL[dsp->firBufferIndex] = (int16_t)(histL >> 1);
+  dsp->firBufferR[dsp->firBufferIndex] = (int16_t)(histR >> 1);
   // calculate FIR-sum
   int sumL = 0, sumR = 0;
-  for(int i = 0; i < 8; i++) {
-    sumL += (dsp->firBufferL[(dsp->firBufferIndex + i + 1) & 0x7] * dsp->firValues[i]) >> 6;
-    sumR += (dsp->firBufferR[(dsp->firBufferIndex + i + 1) & 0x7] * dsp->firValues[i]) >> 6;
-    if(i == 6) {
-      // clip to 16-bit before last addition
-      sumL = ((int16_t) (sumL & 0xffff)); // clip 16-bit
-      sumR = ((int16_t) (sumR & 0xffff)); // clip 16-bit
-    }
+  int fir_i = dsp->firBufferIndex;
+#pragma GCC unroll 1
+  for (int i = 0; i < 7; i++) {
+    int idx = (fir_i + i + 1) & 7;
+    int c = dsp->firValues[i];
+    sumL += dsp_mul_coeff(dsp->firBufferL[idx], c) >> 6;
+    sumR += dsp_mul_coeff(dsp->firBufferR[idx], c) >> 6;
   }
-  sumL = sumL < -0x8000 ? -0x8000 : (sumL > 0x7fff ? 0x7fff : sumL); // clamp 16-bit
-  sumR = sumR < -0x8000 ? -0x8000 : (sumR > 0x7fff ? 0x7fff : sumR); // clamp 16-bit
+  /* Clip to 16-bit before the last tap, matching the hardware. */
+  sumL = (int16_t)sumL;
+  sumR = (int16_t)sumR;
+  {
+    int idx = (fir_i + 8) & 7;
+    int c = dsp->firValues[7];
+    sumL += dsp_mul_coeff(dsp->firBufferL[idx], c) >> 6;
+    sumR += dsp_mul_coeff(dsp->firBufferR[idx], c) >> 6;
+  }
+  sumL = dsp_clamp16(sumL);
+  sumR = dsp_clamp16(sumR);
   // modify output with sum
-  int outL = *outputL + ((sumL * dsp->echoVolumeL) >> 7);
-  int outR = *outputR + ((sumR * dsp->echoVolumeR) >> 7);
-  *outputL = outL < -0x8000 ? -0x8000 : (outL > 0x7fff ? 0x7fff : outL); // clamp 16-bit
-  *outputR = outR < -0x8000 ? -0x8000 : (outR > 0x7fff ? 0x7fff : outR); // clamp 16-bit
-  // get echo input
-  int inL = 0, inR = 0;
-  for(int i = 0; i < 8; i++) {
-    if(dsp->channel[i].echoEnable) {
-      inL += (dsp->channel[i].sampleOut * dsp->channel[i].volumeL) >> 6;
-      inR += (dsp->channel[i].sampleOut * dsp->channel[i].volumeR) >> 6;
-      inL = inL < -0x8000 ? -0x8000 : (inL > 0x7fff ? 0x7fff : inL); // clamp 16-bit
-      inR = inR < -0x8000 ? -0x8000 : (inR > 0x7fff ? 0x7fff : inR); // clamp 16-bit
-    }
-  }
+  *outputL = dsp_clamp16(*outputL + ((sumL * dsp->echoVolumeL) >> 7));
+  *outputR = dsp_clamp16(*outputR + ((sumR * dsp->echoVolumeR) >> 7));
   // write this to ram
   inL += (sumL * dsp->feedbackVolume) >> 7;
   inR += (sumR * dsp->feedbackVolume) >> 7;
@@ -215,10 +252,16 @@ static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR) {
   inL &= 0xfffe;
   inR &= 0xfffe;
   if(dsp->echoWrites) {
-    dsp->apu_ram[adr] = inL & 0xff;
-    dsp->apu_ram[(adr + 1) & 0xffff] = inL >> 8;
-    dsp->apu_ram[(adr + 2) & 0xffff] = inR & 0xff;
-    dsp->apu_ram[(adr + 3) & 0xffff] = inR >> 8;
+    if (adr <= 0xfffc && (((uintptr_t)(dsp->apu_ram + adr) & 1) == 0)) {
+      int16_t *p = (int16_t *)(dsp->apu_ram + adr);
+      p[0] = (int16_t)inL;
+      p[1] = (int16_t)inR;
+    } else {
+      dsp->apu_ram[adr] = inL & 0xff;
+      dsp->apu_ram[(adr + 1) & 0xffff] = inL >> 8;
+      dsp->apu_ram[(adr + 2) & 0xffff] = inR & 0xff;
+      dsp->apu_ram[(adr + 3) & 0xffff] = inR >> 8;
+    }
   }
   // handle indexes
   dsp->firBufferIndex++;
@@ -231,6 +274,7 @@ static void dsp_handleEcho(Dsp* dsp, int* outputL, int* outputR) {
   }
 }
 
+#ifndef ARM7
 static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch) {
   // handle pitch counter
   uint16_t pitch = c->pitch;
@@ -292,6 +336,7 @@ static void dsp_cycleChannel(Dsp* dsp, DspChannel* c, int ch) {
   dsp->ram[(ch << 4) | 9] = sample >> 7;
   c->sampleOut = sample;
 }
+#endif
 
 static void dsp_handleGain(Dsp* dsp, int ch) {
   switch(dsp->channel[ch].adsrState) {
@@ -345,6 +390,7 @@ static void dsp_handleGain(Dsp* dsp, int ch) {
   }
 }
 
+#ifndef ARM7
 static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset) {
   int16_t news = c->decodeBuffer[sampleNum + 3];
   int16_t olds = c->decodeBuffer[sampleNum + 2];
@@ -359,6 +405,7 @@ static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset)
   out = out < -0x8000 ? -0x8000 : (out > 0x7fff ? 0x7fff : out); // clamp 16-bit
   return out >> 1;
 }
+#endif
 
 static void dsp_decodeBrr(Dsp* dsp, int ch) {
   // copy last 3 samples (16-18) to first 3 for interpolation
@@ -553,6 +600,7 @@ void dsp_write(Dsp *dsp, uint8_t adr, uint8_t val) {
 #if MY_CHANGES
 
       if (dsp->channel[ch].keyOn) {
+        dsp_voice_epoch[ch]++;
         dsp->channel[ch].keyOn = false;
         // restart current sample
         dsp->channel[ch].previousFlags = 0;
@@ -643,6 +691,295 @@ void dsp_write(Dsp *dsp, uint8_t adr, uint8_t val) {
   }
   }
   dsp->ram[adr] = val;
+}
+
+/* One voice for a whole block, then mix. A released voice at zero gain
+ * stays silent until the next key-on, which happens between blocks, so
+ * its pitch counter is left alone. Everything else matches dsp_cycle. */
+enum { kDspChunk = 64 };
+static int16_t dsp_voice_out[8][kDspChunk];
+static int16_t dsp_noise_seq[kDspChunk];
+
+static inline int16_t dsp_interp(const DspChannel *c, unsigned counter) {
+  unsigned offset = (counter >> 4) & 0xff;
+  const int16_t *s = c->decodeBuffer + ((counter >> 12) & 0xf);
+  int out = (gaussValues[0xff - offset] * s[0]) >> 10;
+  out += (gaussValues[0x1ff - offset] * s[1]) >> 10;
+  out += (gaussValues[0x100 + offset] * s[2]) >> 10;
+  out = (int16_t)out;
+  out += (gaussValues[offset] * s[3]) >> 10;
+  return (int16_t)(dsp_clamp16(out) >> 1);
+}
+
+static int dsp_voice_silent(const Dsp *dsp, const DspChannel *c) {
+  return !dsp->reset && c->adsrState == 4 && c->gain == 0 && !c->keyOn;
+}
+
+static void dsp_envelope(Dsp *dsp, DspChannel *c, int ch) {
+  int direct;
+
+  if (dsp->reset) {
+    c->adsrState = 4;
+    c->gain = 0;
+  }
+  direct = c->adsrState != 4 && c->useGain && c->directGain;
+  {
+    uint16_t rate = c->adsrState == 4 ? 0 : c->adsrRates[c->adsrState];
+
+    if (c->adsrState != 4 && !direct && rate != 0)
+      c->rateCounter++;
+    if (c->adsrState == 4) {
+      c->gain -= 8;
+      if (c->gain > 0x7ff)
+        c->gain = 0;
+    } else if (!direct && c->rateCounter >= rate && rate != 0) {
+      c->rateCounter = 0;
+      if (c->adsrState == 2)
+        c->gain -= ((c->gain - 1) >> 8) + 1;
+      else
+        dsp_handleGain(dsp, ch);
+    }
+  }
+  if (direct)
+    c->gain = c->gainValue;
+}
+
+static inline void dsp_store_voice(Dsp *dsp, DspChannel *c, int ch, int16_t sample) {
+  dsp->ram[(ch << 4) | 8] = (uint8_t)(c->gain >> 4);
+  dsp->ram[(ch << 4) | 9] = (uint8_t)(sample >> 7);
+  c->sampleOut = sample;
+}
+
+/* Samples until pitchCounter would overflow. The inner loop stays free of
+ * the BRR call so the counter, gain and coefficients can live in registers. */
+static unsigned dsp_runout(unsigned counter, unsigned pitch, unsigned n) {
+  unsigned k;
+
+  if (pitch == 0 || n == 0)
+    return n;
+  k = (0xffffu - counter) / pitch;
+  return k < n ? k : n;
+}
+
+static inline void dsp_step_hold(uint8_t state, uint16_t *gain, uint16_t *rate_counter, uint16_t rate) {
+  if (state == 4) {
+    *gain -= 8;
+    if (*gain > 0x7ff)
+      *gain = 0;
+  } else if (rate != 0) {
+    (*rate_counter)++;
+    if (*rate_counter >= rate) {
+      *rate_counter = 0;
+      *gain -= ((*gain - 1) >> 8) + 1;
+    }
+  }
+}
+
+/* Constant-pitch stretch with no BRR decode. One copy of the interpolator,
+ * so the sustain case the music sits in stays in registers. */
+static int dsp_hold_block(Dsp *dsp, int ch, int16_t *dst, int n, uint8_t state, uint16_t rate)
+    __attribute__((noinline));
+
+static int dsp_hold_block(Dsp *dsp, int ch, int16_t *dst, int n, uint8_t state, uint16_t rate) {
+  DspChannel *c = &dsp->channel[ch];
+  uint16_t counter = c->pitchCounter;
+  uint16_t pitch = c->pitch;
+  uint16_t gain = c->gain;
+  uint16_t rateCounter = c->rateCounter;
+  int i;
+
+  for (i = 0; i < n; i++) {
+    int16_t sample;
+
+    counter = (uint16_t)(counter + pitch);
+    dsp_step_hold(state, &gain, &rateCounter, rate);
+    sample = (int16_t)((dsp_interp(c, counter) * (int)gain) >> 11);
+    dst[i] = sample;
+    if (state == 4 && gain == 0) {
+      c->pitchCounter = counter;
+      c->gain = gain;
+      c->rateCounter = rateCounter;
+      dsp_store_voice(dsp, c, ch, sample);
+      return i + 1;
+    }
+  }
+  c->pitchCounter = counter;
+  c->gain = gain;
+  c->rateCounter = rateCounter;
+  if (n > 0)
+    dsp_store_voice(dsp, c, ch, dst[n - 1]);
+  return n;
+}
+
+/* One copy. Inlining this once per channel blew out ARM7 WRAM. */
+static void dsp_gen_voice(Dsp *dsp, int ch, int16_t *dst, const int16_t *prev,
+                          const int16_t *noise, int n) __attribute__((noinline));
+
+static void dsp_gen_voice(Dsp *dsp, int ch, int16_t *dst, const int16_t *prev,
+                          const int16_t *noise, int n) {
+  DspChannel *c = &dsp->channel[ch];
+  int i = 0;
+
+  if (dsp_voice_silent(dsp, c)) {
+    c->sampleOut = 0;
+    for (i = 0; i < n; i++)
+      dst[i] = 0;
+    return;
+  }
+
+  /* Sustain / release with a steady pitch. Attack, decay, noise and pitch
+   * modulation fall through to the general loop below. */
+  while (i < n && !c->useNoise && (ch == 0 || !c->pitchModulation) && !dsp->reset &&
+         !c->directGain && (c->adsrState == 2 || c->adsrState == 4)) {
+    uint16_t pitch = c->pitch;
+    uint16_t counter = c->pitchCounter;
+    uint16_t gain = c->gain;
+    uint16_t rate = c->adsrState == 4 ? 0 : c->adsrRates[2];
+    uint16_t rateCounter = c->rateCounter;
+    uint8_t state = c->adsrState;
+    unsigned k = dsp_runout(counter, pitch, (unsigned)(n - i));
+
+    if (k == 0) {
+      unsigned newCounter = (unsigned)counter + pitch;
+      dsp_decodeBrr(dsp, ch);
+      counter = (uint16_t)newCounter;
+      c->pitchCounter = counter;
+      /* End-without-loop forces gain to 0 even when the voice was already
+       * releasing, so the snapshot from before the decode is stale. */
+      state = c->adsrState;
+      gain = c->gain;
+      if (state != 2)
+        rate = 0;
+      dsp_step_hold(state, &gain, &rateCounter, rate);
+      {
+        int16_t sample = (int16_t)((dsp_interp(c, counter) * (int)gain) >> 11);
+        dst[i++] = sample;
+        c->gain = gain;
+        c->rateCounter = rateCounter;
+        c->adsrState = state;
+        dsp_store_voice(dsp, c, ch, sample);
+        if (gain == 0 && state == 4) {
+          for (; i < n; i++)
+            dst[i] = 0;
+          return;
+        }
+      }
+      continue;
+    }
+
+    {
+      int wrote = dsp_hold_block(dsp, ch, dst + i, (int)k, state, rate);
+      i += wrote;
+      if (c->adsrState == 4 && c->gain == 0) {
+        for (; i < n; i++)
+          dst[i] = 0;
+        return;
+      }
+    }
+  }
+
+  for (; i < n; i++) {
+    uint16_t pitch;
+    unsigned newCounter;
+    int16_t sample;
+
+    if (dsp_voice_silent(dsp, c)) {
+      c->sampleOut = 0;
+      for (; i < n; i++)
+        dst[i] = 0;
+      return;
+    }
+    pitch = c->pitch;
+    if (ch > 0 && c->pitchModulation) {
+      int factor = (prev[i] >> 4) + 0x400;
+      pitch = (uint16_t)(((int)pitch * factor) >> 10);
+      if (pitch > 0x3fff)
+        pitch = 0x3fff;
+    }
+    newCounter = (unsigned)c->pitchCounter + pitch;
+    if (newCounter > 0xffff)
+      dsp_decodeBrr(dsp, ch);
+    c->pitchCounter = (uint16_t)newCounter;
+    sample = c->useNoise ? noise[i] : dsp_interp(c, c->pitchCounter);
+    dsp_envelope(dsp, c, ch);
+    sample = (int16_t)((sample * (int)c->gain) >> 11);
+    dst[i] = sample;
+    dsp_store_voice(dsp, c, ch, sample);
+  }
+}
+
+/* Kept out of dsp_run so the 8-voice sum stays a register loop. Inlined,
+ * the compiler spilled every product and added it twice. */
+static void dsp_accumulate(const Dsp *dsp, int i, int *totalL, int *totalR,
+                           int *echoL, int *echoR) __attribute__((noinline));
+
+static void dsp_accumulate(const Dsp *dsp, int i, int *totalL, int *totalR,
+                           int *echoL, int *echoR) {
+  int ch;
+  int tL = 0, tR = 0, eL = 0, eR = 0;
+
+#pragma GCC unroll 1
+  for (ch = 0; ch < 8; ch++) {
+    const DspChannel *c = &dsp->channel[ch];
+    int s = dsp_voice_out[ch][i];
+    int l, r;
+
+    /* A silent voice adds nothing, before or after the clamp. */
+    if (s == 0)
+      continue;
+    l = dsp_mul_coeff(s, c->volumeL) >> 6;
+    r = dsp_mul_coeff(s, c->volumeR) >> 6;
+
+    tL = dsp_clamp16(tL + l);
+    tR = dsp_clamp16(tR + r);
+    if (c->echoEnable) {
+      eL = dsp_clamp16(eL + l);
+      eR = dsp_clamp16(eR + r);
+    }
+  }
+  *totalL = tL;
+  *totalR = tR;
+  *echoL = eL;
+  *echoR = eR;
+}
+
+static void dsp_run_chunk(Dsp *dsp, int n) {
+  int i, ch;
+
+  for (i = 0; i < n; i++) {
+    dsp_noise_seq[i] = dsp->noiseSample;
+    dsp_handleNoise(dsp);
+  }
+  for (ch = 0; ch < 8; ch++) {
+    const int16_t *prev = ch > 0 ? dsp_voice_out[ch - 1] : 0;
+    dsp_gen_voice(dsp, ch, dsp_voice_out[ch], prev, dsp_noise_seq, n);
+  }
+  for (i = 0; i < n; i++) {
+    int totalL, totalR, echoL, echoR;
+
+    dsp_accumulate(dsp, i, &totalL, &totalR, &echoL, &echoR);
+    totalL = dsp_clamp16((totalL * dsp->masterVolumeL) >> 7);
+    totalR = dsp_clamp16((totalR * dsp->masterVolumeR) >> 7);
+    dsp_handleEcho(dsp, &totalL, &totalR, echoL, echoR);
+    if (dsp->mute) {
+      totalL = 0;
+      totalR = 0;
+    }
+    if (dsp->sampleOffset < 534) {
+      dsp->sampleBuffer[dsp->sampleOffset * 2] = (int16_t)totalL;
+      dsp->sampleBuffer[dsp->sampleOffset * 2 + 1] = (int16_t)totalR;
+      dsp->sampleOffset++;
+    }
+    dsp->evenCycle = !dsp->evenCycle;
+  }
+}
+
+void dsp_run(Dsp *dsp, int n) {
+  while (n > 0) {
+    int chunk = n > kDspChunk ? kDspChunk : n;
+    dsp_run_chunk(dsp, chunk);
+    n -= chunk;
+  }
 }
 
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame, int numChannels) {

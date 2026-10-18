@@ -139,6 +139,10 @@ typedef struct SpcPlayer {
 
 SpcPlayer *SpcPlayer_Create();
 void SpcPlayer_GenerateSamples(SpcPlayer *p);
+/* One video frame of the music and SFX driver (534 samples of SPC time)
+ * without rendering DSP samples. */
+void SpcPlayer_Advance(SpcPlayer *p);
+uint32 SpcPlayer_SongGeneration(void);
 void SpcPlayer_Initialize(SpcPlayer *p);
 void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data);
 void SpcPlayer_CopyVariablesFromRam(SpcPlayer *p);

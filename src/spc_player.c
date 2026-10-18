@@ -1218,31 +1218,64 @@ void SpcPlayer_CopyVariablesFromRam(SpcPlayer *p) {
 }
 
 
-void SpcPlayer_GenerateSamples(SpcPlayer *p) {
-  assert(p->timer_cycles <= 64);
+#ifdef ARM7
+void dsp_run(Dsp *dsp, int n);
+#endif
 
-  assert(p->dsp->sampleOffset <= 534);
+static uint32 g_spc_song_generation;
+
+uint32 SpcPlayer_SongGeneration(void) {
+  return g_spc_song_generation;
+}
+
+/* mix copies today's sample renderer. The DS build passes mix=0 and only
+ * advances the driver clock. */
+static void SpcPlayer_Run(SpcPlayer *p, int mix) {
+  int generated = 0;
+
+  assert(p->timer_cycles <= 64);
+  if (mix)
+    assert(p->dsp->sampleOffset <= 534);
 
   for (;;) {
+    int have, n;
+
     if (p->timer_cycles >= 64) {
       Spc_Loop_Part2(p, p->timer_cycles >> 6);
       Spc_Loop_Part1(p);
       p->timer_cycles &= 63;
     }
 
-    // sample rate 32000
-    int n = 534 - p->dsp->sampleOffset;
+    have = mix ? p->dsp->sampleOffset : generated;
+    n = 534 - have;
     if (n > (64 - p->timer_cycles))
-      n = (64 - p->timer_cycles);
+      n = 64 - p->timer_cycles;
 
     p->timer_cycles += n;
 
-    for (int i = 0; i < n; i++)
-      dsp_cycle(p->dsp);
+    if (mix) {
+#ifdef ARM7
+      dsp_run(p->dsp, n);
+#else
+      for (int i = 0; i < n; i++)
+        dsp_cycle(p->dsp);
+#endif
+    } else {
+      generated += n;
+    }
 
-    if (p->dsp->sampleOffset == 534)
+    have = mix ? p->dsp->sampleOffset : generated;
+    if (have == 534)
       break;
   }
+}
+
+void SpcPlayer_Advance(SpcPlayer *p) {
+  SpcPlayer_Run(p, 0);
+}
+
+void SpcPlayer_GenerateSamples(SpcPlayer *p) {
+  SpcPlayer_Run(p, 1);
 }
 
 void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data) {
@@ -1251,10 +1284,13 @@ void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data) {
   Dsp_Write(p, KOF, 0xff);
 
   for (;;) {
-    int numbytes = *(uint16 *)(data);
+    /* Asset chunks are not aligned. ARM9 LDRH ignores bit 0, so a
+     * halfword load here drops the rest of the song and the SFX
+     * parser never sees the terminator. */
+    int numbytes = data[0] | data[1] << 8;
     if (numbytes == 0)
       break;
-    int target = *(uint16 *)(data + 2);
+    int target = data[2] | data[3] << 8;
     data += 4;
     do {
       p->ram[target++ & 0xffff] = *data++;
@@ -1267,6 +1303,7 @@ void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data) {
   p->port3_active = 0;
   p->is_chan_on = 0;
   p->input_ports[0] = p->input_ports[1] = p->input_ports[2] = p->input_ports[3] = 0;
+  g_spc_song_generation++;
 }
 
 // =======================================

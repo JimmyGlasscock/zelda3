@@ -423,7 +423,7 @@ void ZeldaPushApuState() {
   ZeldaApuUnlock();
 }
 
-static void ZeldaPopApuState() {
+void ZeldaPopApuState(void) {
   if (g_apu_write_count != 0)
     memcpy(g_zenv.player->input_ports, &g_apu_write_ents[(g_apu_write_ent_pos - g_apu_write_count--) & 0xf], 4);
 }

@@ -88,6 +88,10 @@ typedef struct DspRegWriteHistory {
   uint8_t val[256];
 } DspRegWriteHistory;
 
+/* Incremented on each key-on. A later tick in the same frame writes KON
+ * back to 0, so the register itself does not survive until the next publish. */
+extern uint8_t dsp_voice_epoch[8];
+
 Dsp* dsp_init(uint8_t *apu_ram);
 void dsp_free(Dsp* dsp);
 void dsp_reset(Dsp* dsp);
