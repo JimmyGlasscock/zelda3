@@ -216,6 +216,35 @@ void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
   }
 }
 
+void ZeldaCaptureMode7(ZeldaM7Line *lines, int height) {
+  SimpleHdma hdma_chans[2];
+  int i;
+
+  dma_startDma(g_zenv.dma, HDMAEN_copy, true);
+  /* Overworld HDMA (the door iris, the spotlight) is still armed on the
+   * blank frame that switches into mode 7. Only the matrix channels belong
+   * in this capture. */
+  if (g_zenv.dma->channel[6].hdmaActive && g_zenv.dma->channel[6].bAdr == (uint8)M7A)
+    SimpleHdma_Init(&hdma_chans[0], &g_zenv.dma->channel[6]);
+  else
+    hdma_chans[0].table = NULL;
+  if (g_zenv.dma->channel[7].hdmaActive && g_zenv.dma->channel[7].bAdr == (uint8)M7D)
+    SimpleHdma_Init(&hdma_chans[1], &g_zenv.dma->channel[7]);
+  else
+    hdma_chans[1].table = NULL;
+
+  for (i = 0; i <= height; i++) {
+    if (i != 0) {
+      lines[i - 1].a = g_zenv.ppu->m7matrix[0];
+      lines[i - 1].b = g_zenv.ppu->m7matrix[1];
+      lines[i - 1].c = g_zenv.ppu->m7matrix[2];
+      lines[i - 1].d = g_zenv.ppu->m7matrix[3];
+    }
+    SimpleHdma_DoLine(&hdma_chans[0]);
+    SimpleHdma_DoLine(&hdma_chans[1]);
+  }
+}
+
 void HdmaSetup(uint32 addr6, uint32 addr7, uint8 transfer_unit, uint8 reg6, uint8 reg7, uint8 indirect_bank) {
   Dma *dma = g_zenv.dma;
   if (addr6) {

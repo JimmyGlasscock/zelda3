@@ -47,6 +47,12 @@ void HdmaSetup(uint32 addr6, uint32 addr7, uint8 transfer_unit, uint8 reg6, uint
 void ZeldaInitialize();
 void ZeldaReset(bool preserve_sram);
 void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags);
+
+/* One SNES scanline of the mode 7 matrix, after that line's HDMA. */
+typedef struct ZeldaM7Line {
+  int16 a, b, c, d;
+} ZeldaM7Line;
+void ZeldaCaptureMode7(ZeldaM7Line *lines, int height);
 void ZeldaRunFrameInternal(uint16 input, int run_what);
 bool ZeldaRunFrame(int input_state);
 void LoadSongBank(const uint8 *p);
