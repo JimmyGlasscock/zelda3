@@ -167,6 +167,18 @@ static const uint16 kOverworld_Size1[2] = { 0x11e, 0x31e };
 static const uint16 kOverworld_Size2[2] = { 0x100, 0x300 };
 static const uint16 kOverworld_UpDownScrollSize[2] = { 0x2e0, 0x4e0 };
 static const uint16 kOverworld_LeftRightScrollSize[2] = { 0x300, 0x500 };
+// Rows the host crops off the top and again off the bottom of the 224 line
+// picture (16 on the DS, whose screen is 192 lines). The overworld camera may
+// travel this far past the top and bottom of an area, so that Link is still
+// on screen when he reaches the edge and the visible picture reaches the very
+// edge of the map. Must be a multiple of 16 (the map row height). Zero keeps
+// the original behavior.
+#ifndef OW_CAMERA_PAD_Y
+#define OW_CAMERA_PAD_Y 0
+#endif
+enum { kOwCameraPadY = OW_CAMERA_PAD_Y };
+typedef char OwCameraPadYMustBeMultipleOf16[(kOwCameraPadY % 16 == 0) ? 1 : -1];
+
 static const int16 kOverworld_Func6B_Tab1[4] = { -8, 8, -8, 8 };
 static const int16 kOverworld_Func6B_Tab2[4] = { 27, 27, 30, 30 };
 static const int16 kOverworld_Func6B_Tab3[4] = { -0x70, 0x70, -0x70, 0x70 };
@@ -918,7 +930,15 @@ void Overworld_RunScrollTransition() {  // 82abda
   Link_HandleMovingAnimation_FullLongEntry();
   Graphics_IncrementalVRAMUpload();
   uint8 rv = OverworldScrollTransition();
-  if (!(rv & 0xf)) {
+  bool load = !(rv & 0xf);
+  // A padded vertical scroll is 2 * pad shorter, so it crosses pad / 8 fewer
+  // 16 line rows. Load those rows on the first odd steps, which never land on
+  // a row boundary, so the map ends up in the same state the original scroll
+  // leaves it in (the stream pointers have to match what comes next).
+  if (kOwCameraPadY != 0 && overworld_screen_transition < 2 &&
+      (transition_counter & 1) && transition_counter < kOwCameraPadY / 4)
+    load = true;
+  if (load) {
     BYTE(overworld_screen_trans_dir_bits2) = BYTE(overworld_screen_trans_dir_bits);
     OverworldTransitionScrollAndLoadMap();
     BYTE(overworld_screen_trans_dir_bits2) = 0;
@@ -1635,7 +1655,32 @@ int OverworldCameraBoundaryCheck(int xa, int ya, int vd, int r8) {  // 82bd62
 
   uint16 *xp = (xa ? &BG2VOFS_copy2 : &BG2HOFS_copy2);
   uint16 *yp = &(&ow_scroll_vars0.ystart)[ya];
-  if (*xp == *yp) {
+
+  // Vertical only: the camera may go kOwCameraPadY past either edge. That
+  // part of the travel is only a viewing margin. It does not touch the map
+  // streaming counters, so the map16 row bookkeeping stays exactly what it is
+  // with the original range, and the transition code below can rely on it.
+  bool padded = false;
+  if (kOwCameraPadY != 0 && xa) {
+    int16 past_start = (int16)(ow_scroll_vars0.ystart - BG2VOFS_copy2);
+    int16 past_end = (int16)(BG2VOFS_copy2 - ow_scroll_vars0.yend);
+    // ya 0 scrolls up (toward ystart), ya 1 scrolls down (toward yend).
+    int16 past_out = ya == 0 ? past_start : past_end;
+    int16 past_back = ya == 0 ? past_end : past_start;
+    if (past_back > 0) {
+      // Heading back from the other margin toward the area.
+      padded = true;
+    } else if (past_out > 0) {
+      if (past_out >= kOwCameraPadY)
+        return 0;
+      padded = true;
+    } else if (past_out == 0) {
+      // On the edge. Same reset as the original, then step into the margin.
+      (&overworld_unk1)[ya] = 0;
+      (&overworld_unk1)[ya ^ 1] = 0;
+      padded = true;
+    }
+  } else if (*xp == *yp) {
     (&overworld_unk1)[ya] = 0;
     (&overworld_unk1)[ya ^ 1] = 0;
     return 0;
@@ -1645,6 +1690,8 @@ int OverworldCameraBoundaryCheck(int xa, int ya, int vd, int r8) {  // 82bd62
   int tt = vd + (&camera_y_coord_scroll_hi)[r8];
   (&camera_y_coord_scroll_hi)[r8] = tt;
   (&camera_y_coord_scroll_low)[r8] = tt + 2;
+  if (padded)
+    return vd;
   uint16 *op = (&overworld_unk1) + ya;
   if (!sign16(++(*op) - 0x10)) {
     (*op) -= 0x10;
@@ -1660,17 +1707,29 @@ int OverworldScrollTransition() {  // 82c001
   int d = kOverworld_Func6B_Tab1[y], rv;
   if (y < 2) {
     byte_7E069E[0] = d;
+    // With a padded camera the scroll runs from the far edge of one margin to
+    // the far edge of the next, which is 2 * pad shorter than the original
+    // 0xe0 lines. The end points move toward each other by pad each, and the
+    // follow thresholds move with Link's landing row.
+    int pad = y == 0 ? kOwCameraPadY : -kOwCameraPadY;
+    uint16 target = (&up_down_scroll_target)[y] + pad;
+    if (kOwCameraPadY != 0 && transition_counter == 1) {
+      // Start exactly 0xe0 - 2 * pad before the target (28 - pad / 4 steps of
+      // 8 lines, this being the first), so the scroll lands on the target even
+      // if the camera was not parked at the end of the margin.
+      BG2VOFS_copy2 = target - d * (28 - kOwCameraPadY / 4);
+    }
     rv = (BG2VOFS_copy2 += d);
     if (BYTE(overworld_screen_index) != 0x1b && BYTE(overworld_screen_index) != 0x5b)
       BG1VOFS_copy2 = BG2VOFS_copy2;
-    if (transition_counter >= kOverworld_Func6B_Tab2[y])
+    if (transition_counter >= kOverworld_Func6B_Tab2[y] - kOwCameraPadY / 4)
       link_y_coord += d;
-    if (rv != (&up_down_scroll_target)[y])
+    if (rv != target)
       return rv;
     if (y == 0)
       BG2VOFS_copy2 -= 2;
     link_y_coord &= ~7;
-    camera_y_coord_scroll_hi = link_y_coord + kOverworld_Func6B_Tab3[y] + 11;
+    camera_y_coord_scroll_hi = link_y_coord + kOverworld_Func6B_Tab3[y] + pad + 11;
     camera_y_coord_scroll_low = camera_y_coord_scroll_hi + 2;
     overworld_unk1 = overworld_unk1_neg = 0;
   } else {
