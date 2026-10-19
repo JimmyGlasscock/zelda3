@@ -185,6 +185,8 @@ void SelectFile_Func16() {
       memset(g_zenv.sram + k * 0x500, 0, 0x500);
       memset(g_zenv.sram + k * 0x500 + 0xf00, 0, 0x500);
       ZeldaWriteSram();
+      if (SaveFile_OnForget)
+        SaveFile_OnForget(k);
     }
     ReturnToFileSelect();
     subsubmodule_index = 0;
@@ -644,9 +646,17 @@ void CopyFile_HandleConfirmation() {  // 8cd371
   } else if (a != 0) {
     sound_effect_1 = 0x2c;
     if (selectfile_R16 == 0) {
-      memcpy(g_zenv.sram + (selectfile_R18 >> 1) * 0x500, g_zenv.sram + (selectfile_R20 >> 1) * 0x500, 0x500);
-      selectfile_arr1[(selectfile_R18 >> 1)] = 1;
+      int dst = selectfile_R18 >> 1, src = selectfile_R20 >> 1;
+      uint8 *d = g_zenv.sram + dst * 0x500;
+
+      memcpy(d, g_zenv.sram + src * 0x500, 0x500);
+      /* The backup copy has to follow, or the old game it replaced is
+       * what a repair would bring back. */
+      memcpy(d + 0xf00, d, 0x500);
+      selectfile_arr1[dst] = 1;
       ZeldaWriteSram();
+      if (SaveFile_OnCopy)
+        SaveFile_OnCopy(src, dst);
     }
     ReturnToFileSelect();
     selectfile_R16 = 0;
@@ -911,6 +921,8 @@ void NameFile_DoTheNaming() {  // 8cda4d
   memcpy(sram + 0x340, kSramInit_Normal, 60);
   Intro_FixCksum(sram);
   ZeldaWriteSram();
+  if (SaveFile_OnForget)
+    SaveFile_OnForget(selectfile_R16);
   ReturnToFileSelect();
   irq_flag = 0xff;
   sound_effect_1 = 0x2c;

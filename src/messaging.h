@@ -138,6 +138,10 @@ extern void (*SelectMenu_OnSettings)(void);
 extern void (*SaveGame_NoteDungeon)(int slot, int entrance);
 /* File load asks for a dungeon entrance. Negative keeps the usual spawn. */
 extern int (*LoadFile_DungeonEntrance)(int slot);
+/* A slot was erased or is about to hold a new game. Anything kept for it is stale. */
+extern void (*SaveFile_OnForget)(int slot);
+/* File select copied slot from over slot to. */
+extern void (*SaveFile_OnCopy)(int from, int to);
 int SaveFile_LoadedSlot(void);
 int SaveFile_ConsumeFileLoad(void);
 /* While set, the save menu ignores presses so a closing button is not a confirm. */

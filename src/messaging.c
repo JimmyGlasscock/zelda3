@@ -2834,6 +2834,8 @@ void RenderText_Draw_Choose3() {  // 8ecef7
 void (*SelectMenu_OnSettings)(void);
 void (*SaveGame_NoteDungeon)(int slot, int entrance);
 int (*LoadFile_DungeonEntrance)(int slot);
+void (*SaveFile_OnForget)(int slot);
+void (*SaveFile_OnCopy)(int from, int to);
 int SelectMenu_LockInput;
 
 /* Third row of the save box. Three spaces match "   Save and Quit". */

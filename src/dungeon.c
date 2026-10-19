@@ -6453,14 +6453,21 @@ void Dungeon_ApproachFixedColor_variable(uint8 a) {  // 81fec1
 
 static int rooms_bright;
 
+/* Link's house before the uncle leaves is dark and tinted blue on purpose.
+ * That is the opening, not a room that needs a lantern. */
+static int opening_house(void)
+{
+  return dungeon_room_index == 0x104 && !(sram_progress_flags & 0x10);
+}
+
 int Dungeon_RoomsBright(void)
 {
-  return rooms_bright;
+  return rooms_bright && !opening_house();
 }
 
 static void brighten_current_room(void)
 {
-  if (!player_is_indoors)
+  if (!player_is_indoors || opening_house())
     return;
   if (!dung_want_lights_out && !hdr_dungeon_dark_with_lantern)
     return;
