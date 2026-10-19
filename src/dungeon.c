@@ -2550,7 +2550,20 @@ void PrepareDungeonExitFromBossFight() {  // 80f945
 
 void SavePalaceDeaths() {  // 80f9dd
   int j = BYTE(cur_palace_index_x2);
-  deaths_per_palace[j >> 1] = death_save_counter;
+  int idx;
+  uint8 *p;
+
+  /* Caves, including the sanctuary, are not a dungeon. The old store
+   * still ran, and deaths_per_palace sits on an odd address. ARM9
+   * halfword stores drop that low bit, so palace 0 overwrote $7EF3E6
+   * and the file select stopped seeing the save. */
+  if (j == 0xff)
+    return;
+  idx = j >> 1;
+  if (idx >= 14)
+    return;
+  p = (uint8 *)deaths_per_palace + idx * 2;
+  WORD(p[0]) = death_save_counter;
   if (j != 8)
     death_save_counter = 0;
 }

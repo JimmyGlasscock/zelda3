@@ -2,6 +2,9 @@
 
 
 bool Intro_CheckCksum(const uint8 *s);
+/* Put a playable slot back if a story event clobbered its marker or checksum.
+ * Returns 1 when the image changed. */
+int Sram_RepairSlots(uint8 *sram);
 uint16 *SelectFile_Func1();
 void SelectFile_Func5_DrawOams(int k);
 void SelectFile_Func6_DrawOams2(int k);

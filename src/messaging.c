@@ -16,6 +16,7 @@
 #include "attract.h"
 #include "nmi.h"
 #include "assets.h"
+#include "select_file.h"
 
 static void WorldMap_AddSprite(int spr, uint8 big, uint8 flags, uint8 ch, uint16 x, uint16 y);
 static bool WorldMap_CalculateOamCoordinates(Point16U *pt);
@@ -253,40 +254,38 @@ const uint8 *GetLightOverworldTilemap() {
   return kLightOverworldTilemap;
 }
 
-/* srm_var1 is 2, 4, or 6. The ROM indexes a word table with that value.
- * A zero slot used to become a negative offset and wrote the live game
- * over the heap in front of SRAM, which wiped the file on the next flush. */
+/* srm_var1 is 2, 4, or 6. A zero slot used to become a negative offset
+ * and wrote the live game over the heap in front of SRAM. */
 static int SaveSlotOffs(void) {
-  static const int kOffs[5] = {0x000, 0x000, 0x500, 0xa00, 0xf00};
+  static const int kOffs[4] = {0x000, 0x000, 0x500, 0xa00};
   unsigned slot = (unsigned)srm_var1 >> 1;
+  int i;
 
-  if (slot < 1 || slot > 3)
-    return -1;
-  return kOffs[slot];
-}
-
-static void StoreChecksum(uint8 *p, uint16 t) {
-  p[0] = (uint8)t;
-  p[1] = (uint8)(t >> 8);
+  if (slot >= 1 && slot <= 3)
+    return kOffs[slot];
+  for (i = 0; i < 3; i++) {
+    const uint8 *s = g_zenv.sram + i * 0x500;
+    if ((s[0x3e5] == 0xaa && s[0x3e6] == 0x55) ||
+        (s[0xf00 + 0x3e5] == 0xaa && s[0xf00 + 0x3e6] == 0x55))
+      return i * 0x500;
+  }
+  return 0;
 }
 
 void SaveGameFile() {  // 80894a
   int offs = SaveSlotOffs();
   uint8 *src = (uint8 *)save_dung_info;
-  uint16 t = 0x5a5a;
-  int i;
+  uint8 *slot = g_zenv.sram + offs;
 
-  if (offs < 0)
-    return;
-  memcpy(g_zenv.sram + offs, src, 0x500);
-  memcpy(g_zenv.sram + offs + 0xf00, src, 0x500);
-  for (i = 0; i < 0x4fe; i += 2) {
-    uint16 w = (uint16)src[i] | ((uint16)src[i + 1] << 8);
-    t = (uint16)(t - w);
-  }
-  word_7EF4FE = t;
-  StoreChecksum(g_zenv.sram + offs + 0x4fe, t);
-  StoreChecksum(g_zenv.sram + offs + 0x4fe + 0xf00, t);
+  /* $7EF3E5 must stay 0x55AA or the file select treats the slot as empty
+   * and the next visit deletes it. The sanctuary's death-counter store
+   * lands on this word on the ARM9. */
+  src[0x3e5] = 0xaa;
+  src[0x3e6] = 0x55;
+  memcpy(slot, src, 0x4fe);
+  Intro_FixCksum(slot);
+  word_7EF4FE = (uint16)slot[0x4fe] | ((uint16)slot[0x4ff] << 8);
+  memcpy(slot + 0xf00, slot, 0x500);
   ZeldaWriteSram();
 }
 

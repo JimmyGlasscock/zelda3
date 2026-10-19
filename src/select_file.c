@@ -12,13 +12,63 @@
 #define selectfile_R18 WORD(g_ram[0xca])
 #define selectfile_R20 WORD(g_ram[0xcc])
 static const uint8 kSelectFile_Draw_Y[3] = {0x43, 0x63, 0x83};
+static uint16 SramRd16(const uint8 *p) {
+  return (uint16)p[0] | ((uint16)p[1] << 8);
+}
+
+static void SramWr16(uint8 *p, uint16 v) {
+  p[0] = (uint8)v;
+  p[1] = (uint8)(v >> 8);
+}
+
 bool Intro_CheckCksum(const uint8 *s) {
-  const uint16 *src = (const uint16 *)s;
   uint16 sum = 0;
   for (int i = 0; i < 0x280; i++)
-    sum += src[i];
+    sum = (uint16)(sum + SramRd16(s + i * 2));
   return sum == 0x5a5a;
+}
 
+/* Skip the 0x55AA existence word. A slot of only that word is not a game. */
+static int SlotHasPayload(const uint8 *s) {
+  for (int i = 0; i < 0x4fe; i++) {
+    if (i == 0x3e5 || i == 0x3e6)
+      continue;
+    if (s[i])
+      return 1;
+  }
+  return 0;
+}
+
+int Sram_RepairSlots(uint8 *sram) {
+  int changed = 0;
+
+  for (int i = 0; i < 3; i++) {
+    uint8 *c = sram + i * 0x500;
+    uint8 *b = c + 0xf00;
+
+    if (!Intro_CheckCksum(c) && Intro_CheckCksum(b)) {
+      memcpy(c, b, 0x500);
+      changed = 1;
+    } else if (!SlotHasPayload(c) && SlotHasPayload(b)) {
+      memcpy(c, b, 0x500);
+      changed = 1;
+    }
+    if (!SlotHasPayload(c))
+      continue;
+    if (SramRd16(c + 0x3e5) != 0x55aa) {
+      SramWr16(c + 0x3e5, 0x55aa);
+      changed = 1;
+    }
+    if (!Intro_CheckCksum(c)) {
+      Intro_FixCksum(c);
+      changed = 1;
+    }
+    if (memcmp(b, c, 0x500) != 0) {
+      memcpy(b, c, 0x500);
+      changed = 1;
+    }
+  }
+  return changed;
 }
 
 uint16 *SelectFile_Func1() {
@@ -156,11 +206,10 @@ void Module_NamePlayer_2() {
 }
 
 void Intro_FixCksum(uint8 *s) {
-  uint16 *src = (uint16 *)s;
   uint16 sum = 0;
   for (int i = 0; i < 0x27f; i++)
-    sum += src[i];
-  src[0x27f] = 0x5a5a - sum;
+    sum = (uint16)(sum + SramRd16(s + i * 2));
+  SramWr16(s + 0x4fe, (uint16)(0x5a5a - sum));
 }
 
 void LoadFileSelectGraphics() {  // 80e4e9
@@ -177,18 +226,10 @@ void LoadFileSelectGraphics() {  // 80e4e9
 }
 
 void Intro_ValidateSram() {  // 828054
-  uint8 *cart = g_zenv.sram;
-  for (int i = 0; i < 3; i++) {
-    uint8 *c = cart + i * 0x500;
-    if (!Intro_CheckCksum(c)) {
-      if (Intro_CheckCksum(c + 0xf00)) {
-        memcpy(c, c + 0xf00, 0x500);
-      } else {
-        memset(c, 0, 0x500);
-        memset(c + 0xf00, 0, 0x500);
-      }
-    }
-  }
+  /* A bad checksum used to zero the slot. That is what erased a game
+   * after the sanctuary had clobbered its marker. Repair it instead. */
+  if (Sram_RepairSlots(g_zenv.sram))
+    ZeldaWriteSram();
   memset(&g_ram[0xd00], 0, 256 * 3);
 }
 
