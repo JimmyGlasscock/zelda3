@@ -3724,6 +3724,8 @@ void Dungeon_LoadHeader() {  // 81b564
   dung_hdr_collision = (hdr_ptr[0] >> 2) & 7;
   dung_want_lights_out_copy = dung_want_lights_out;
   dung_want_lights_out = hdr_ptr[0] & 1;
+  if (Dungeon_RoomsBright())
+    dung_want_lights_out = 0;
   const DungPalInfo *dpi = &kDungPalinfos[hdr_ptr[1]];
   palette_main_indoors = dpi->pal0;
   palette_sp0l = dpi->pal1;
@@ -6430,6 +6432,66 @@ void Dungeon_ApproachFixedColor_variable(uint8 a) {  // 81fec1
   COLDATA_copy0 = a | 0x20;
   COLDATA_copy1 = a | 0x40;
   COLDATA_copy2 = a | 0x80;
+}
+
+static int rooms_bright;
+
+int Dungeon_RoomsBright(void)
+{
+  return rooms_bright;
+}
+
+static void brighten_current_room(void)
+{
+  if (!player_is_indoors)
+    return;
+  if (!dung_want_lights_out && !hdr_dungeon_dark_with_lantern)
+    return;
+  dung_want_lights_out = 0;
+  if (hdr_dungeon_dark_with_lantern && dung_hdr_bg2_properties != 2)
+    TS_copy = 0;
+  hdr_dungeon_dark_with_lantern = 0;
+  if (CGADSUB_copy == 0xb3)
+    CGADSUB_copy = 0x20;
+  overworld_fixed_color_plusminus = 0;
+  Dungeon_ApproachFixedColor_variable(0);
+}
+
+static void restore_current_room_darkness(void)
+{
+  const uint8 *hdr;
+  int torches;
+
+  if (!player_is_indoors)
+    return;
+  hdr = GetRoomHeaderPtr(dungeon_room_index);
+  if (!(hdr[0] & 1))
+    return;
+  dung_want_lights_out = 1;
+  torches = dung_num_lit_torches;
+  if (torches > 3)
+    torches = 3;
+  CGWSEL_copy = 0x02;
+  CGADSUB_copy = 0xb3;
+  if (torches == 0 && link_item_torch && dung_hdr_bg2_properties != 2) {
+    hdr_dungeon_dark_with_lantern = 1;
+    TS_copy = 1;
+  }
+  overworld_fixed_color_plusminus = kLitTorchesColorPlus[torches];
+  Dungeon_ApproachFixedColor_variable(overworld_fixed_color_plusminus);
+}
+
+void Dungeon_SetRoomsBright(int on)
+{
+  int next = on != 0;
+
+  if (next == rooms_bright)
+    return;
+  rooms_bright = next;
+  if (rooms_bright)
+    brighten_current_room();
+  else
+    restore_current_room_darkness();
 }
 
 void Module_PreDungeon() {  // 82821e

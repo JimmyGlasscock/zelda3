@@ -90,6 +90,8 @@ void OrientLampLightCone();
 void PrepareDungeonExitFromBossFight();
 void SavePalaceDeaths();
 void Dungeon_LoadRoom();
+void Dungeon_SetRoomsBright(int on);
+int Dungeon_RoomsBright(void);
 void RoomDraw_DrawAllObjects(const uint8 *level_data);
 void RoomData_DrawObject_Door(uint16 a);
 void RoomData_DrawObject(uint16 r0, const uint8 *level_data);
