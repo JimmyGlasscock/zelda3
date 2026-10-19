@@ -100,7 +100,6 @@ static PlayerHandlerFunc *const kDungMapSubmodules[] = {
   &DungMap_RestoreOld,
 };
 static const uint16 kText_Positions[2] = {0x6125, 0x6244};
-static const uint16 kSrmOffsets[4] = {0, 0x500, 0xa00, 0xf00};
 static const int8 kText_InitializationData[32] = {0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0x39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0x1c, 4, 0, 0, 0, 0, 0};
 static const uint16 kText_BorderTiles[9] = {0x28f3, 0x28f4, 0x68f3, 0x28c8, 0x387f, 0x68c8, 0xa8f3, 0xa8f4, 0xe8f3};
 static const uint8 kText_CommandLengths[25] = {
@@ -254,16 +253,40 @@ const uint8 *GetLightOverworldTilemap() {
   return kLightOverworldTilemap;
 }
 
+/* srm_var1 is 2, 4, or 6. The ROM indexes a word table with that value.
+ * A zero slot used to become a negative offset and wrote the live game
+ * over the heap in front of SRAM, which wiped the file on the next flush. */
+static int SaveSlotOffs(void) {
+  static const int kOffs[5] = {0x000, 0x000, 0x500, 0xa00, 0xf00};
+  unsigned slot = (unsigned)srm_var1 >> 1;
+
+  if (slot < 1 || slot > 3)
+    return -1;
+  return kOffs[slot];
+}
+
+static void StoreChecksum(uint8 *p, uint16 t) {
+  p[0] = (uint8)t;
+  p[1] = (uint8)(t >> 8);
+}
+
 void SaveGameFile() {  // 80894a
-  int offs = ((srm_var1 >> 1) - 1) * 0x500;
-  memcpy(g_zenv.sram + offs, save_dung_info, 0x500);
-  memcpy(g_zenv.sram + offs + 0xf00, save_dung_info, 0x500);
+  int offs = SaveSlotOffs();
+  uint8 *src = (uint8 *)save_dung_info;
   uint16 t = 0x5a5a;
-  for (int i = 0; i < 0x4fe; i += 2)
-    t -= *(uint16 *)((char *)save_dung_info + i);
+  int i;
+
+  if (offs < 0)
+    return;
+  memcpy(g_zenv.sram + offs, src, 0x500);
+  memcpy(g_zenv.sram + offs + 0xf00, src, 0x500);
+  for (i = 0; i < 0x4fe; i += 2) {
+    uint16 w = (uint16)src[i] | ((uint16)src[i + 1] << 8);
+    t = (uint16)(t - w);
+  }
   word_7EF4FE = t;
-  WORD(g_zenv.sram[offs + 0x4fe]) = t;
-  WORD(g_zenv.sram[offs + 0x4fe + 0xf00]) = t;
+  StoreChecksum(g_zenv.sram + offs + 0x4fe, t);
+  StoreChecksum(g_zenv.sram + offs + 0x4fe + 0xf00, t);
   ZeldaWriteSram();
 }
 
@@ -367,6 +390,9 @@ void Module0E_0B_SaveMenu() {  // 80f9fa
   if (!submodule_index) {
     subsubmodule_index = 0;
     nmi_load_bg_from_vram = 1;
+    /* Both "Save and Continue" and "Save and Quit" persist the slot.
+     * Continue used to return without writing, so the file never moved. */
+    SaveGameFile();
     if (choice_in_multiselect_box) {
       sound_effect_ambient = 15;
       main_module_index = 23;
@@ -813,22 +839,23 @@ void Death_Func15(bool count_as_death) {  // 89f50f
         dungeon_room_index = 32;
     }
 
+    if (subsubmodule_index == 0)
+      SaveGameFile();
     if (sram_progress_indicator) {
-      if (subsubmodule_index == 0)
-        SaveGameFile();
       main_module_index = 5;
       submodule_index = 0;
       nmi_load_bg_from_vram = 0;
     } else {
-      uint8 slot = srm_var1;
-      int offs = kSrmOffsets[(slot >> 1) - 1];
-      WORD(g_ram[0]) = offs;
+      int offs = SaveSlotOffs();
+
+      if (offs < 0)
+        offs = 0;
+      WORD(g_ram[0]) = (uint16)offs;
       death_var5 = 0;
       CopySaveToWRAM();
     }
   } else {
-    if (sram_progress_indicator)
-      SaveGameFile();
+    SaveGameFile();
     TM_copy = 16;
     player_is_indoors = 0;
     Death_Func31();
@@ -1146,10 +1173,11 @@ void WorldMap_Brighten() {  // 8abaaa
 }
 
 bool DidPressButtonForMap() {
-  if (hud_cur_item_x != 0)
-    return filtered_joypad_H & 0x20;  // select
-  else
-    return filtered_joypad_L & 0x40;  // x
+  /* X opens the map. Select is save and quit. The extra item slots
+   * borrow Select for the map; that feature is off on this port. */
+  if ((enhanced_features0 & kFeatures0_SwitchLR) && hud_cur_item_x != 0)
+    return filtered_joypad_H & kJoypadH_Select;
+  return filtered_joypad_L & kJoypadL_X;
 }
 
 void WorldMap_PlayerControl() {  // 8abae6

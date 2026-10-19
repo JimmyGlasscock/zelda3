@@ -93,10 +93,11 @@ void SelectFile_Func17(int k) {
   static const uint16 kSelectFile_DrawName_VramOffs[3] = {8, 0x5c, 0xb0};
   static const uint16 kSelectFile_DrawName_HealthVramOffs[3] = {0x16, 0x6a, 0xbe};
   uint8 *sram = g_zenv.sram + 0x500 * k;
-  uint16 *name = (uint16 *)(sram + kSrmOffs_Name);
+  uint8 *name = sram + kSrmOffs_Name;
   uint16 *dst = vram_upload_data + kSelectFile_DrawName_VramOffs[k] / 2;
   for (int i = 5; i >= 0; i--) {
-    uint16 t = *name++ + 0x1800;
+    uint16 t = WORD(name[0]) + 0x1800;
+    name += 2;
     dst[0] = t;
     dst[21] = t + 0x10;
     dst++;
@@ -315,7 +316,7 @@ void FileSelect_Main() {  // 8ccebd
     selectfile_var2 = selectfile_R16;
 
   for (int k = 0; k < 3; k++) {
-    if (*(uint16 *)(cart + k * 0x500 + 0x3E5) == 0x55AA) {
+    if (WORD(cart[k * 0x500 + 0x3E5]) == 0x55AA) {
       selectfile_arr1[k] = 1;
       SelectFile_Func5_DrawOams(k);
       SelectFile_Func6_DrawOams2(k);
@@ -442,10 +443,10 @@ void CopyFile_SelectionAndBlinker() {  // 8cd13f
 
   for (int k = 0; k != 3; k++) {
     if (selectfile_arr1[k] & 1) {
-      const uint16 *name = (uint16 *)(g_zenv.sram + 0x500 * k + kSrmOffs_Name);
+      const uint8 *name = g_zenv.sram + 0x500 * k + kSrmOffs_Name;
       uint16 *dst = vram_upload_data + kCopyFile_SelectionAndBlinker_Dst[k] / 2;
       for (int i = 0; i != 6; i++) {
-        uint16 t = *name++ + 0x1800;
+        uint16 t = WORD(name[i * 2]) + 0x1800;
         dst[0] = t;
         dst[10] = t + 0x10;
         dst++;
@@ -540,9 +541,9 @@ void CopyFile_TargetSelectionAndBlink() {  // 8cd27b
     dst[10] = t + 0x10;
     dst += 2;
     if (selectfile_arr1[k]) {
-      const uint16 *name = (uint16 *)(g_zenv.sram + 0x500 * k + kSrmOffs_Name);
+      const uint8 *name = g_zenv.sram + 0x500 * k + kSrmOffs_Name;
       for (int i = 0; i != 6; i++) {
-        uint16 t = *name++ + 0x1800;
+        uint16 t = WORD(name[i * 2]) + 0x1800;
         dst[0] = t;
         dst[10] = t + 0x10;
         dst++;
@@ -748,8 +749,9 @@ void NameFile_EraseSave() {  // 8cd89c
   int offs = selectfile_R16 * 0x500;
   attract_legend_ctr = offs;
   memset(g_zenv.sram + offs, 0, 0x500);
-  uint16 *name = (uint16 *)(g_zenv.sram + offs + kSrmOffs_Name);
-  name[0] = name[1] = name[2] = name[3] = name[4] = name[5] = 0xa9;
+  uint8 *name = g_zenv.sram + offs + kSrmOffs_Name;
+  for (int i = 0; i < 6; i++)
+    WORD(name[i * 2]) = 0xa9;
 }
 
 void NameFile_DoTheNaming() {  // 8cda4d

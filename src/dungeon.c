@@ -6614,12 +6614,10 @@ void Module07_00_PlayerControl() {  // 8288de
         main_module_index = 14;
         return;
       }
-    } else if (joypad1H_last & 0x20) {  // select
-      if (sram_progress_indicator) {
-        overworld_map_state = 0;
-        DisplaySelectMenu();
-        return;
-      }
+    } else if (joypad1H_last & kJoypadH_Select) {
+      overworld_map_state = 0;
+      DisplaySelectMenu();
+      return;
     }
     Hud_HandleItemSwitchInputs();
   }

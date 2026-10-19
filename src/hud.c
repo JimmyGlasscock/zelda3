@@ -621,7 +621,7 @@ void Hud_NormalMenu() {  // 8ddf15
   }
 
   // Allow select to open the save/exit thing
-  if (joypad1H_last & kJoypadH_Select && sram_progress_indicator) {
+  if (joypad1H_last & kJoypadH_Select) {
     BG3VOFS_copy2 = -8;
     Hud_CloseMenu();
     DisplaySelectMenu();
