@@ -173,10 +173,10 @@ static const uint16 kOverworld_LeftRightScrollSize[2] = { 0x300, 0x500 };
 // on screen when he reaches the edge and the visible picture reaches the very
 // edge of the map. Must be a multiple of 16 (the map row height). Zero keeps
 // the original behavior.
-#ifndef OW_CAMERA_PAD_Y
-#define OW_CAMERA_PAD_Y 0
+#ifndef CAMERA_PAD_Y
+#define CAMERA_PAD_Y 0
 #endif
-enum { kOwCameraPadY = OW_CAMERA_PAD_Y };
+enum { kOwCameraPadY = CAMERA_PAD_Y };
 typedef char OwCameraPadYMustBeMultipleOf16[(kOwCameraPadY % 16 == 0) ? 1 : -1];
 
 static const int16 kOverworld_Func6B_Tab1[4] = { -8, 8, -8, 8 };

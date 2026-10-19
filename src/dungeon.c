@@ -99,6 +99,21 @@ static const int8 kStaircaseTab2[] = {
 static const int8 kStaircaseTab3[] = { 4, -4, 4, -4 };
 static const int8 kStaircaseTab4[] = { 52, 52, 59, 58 };
 static const int8 kStaircaseTab5[] = { 32, -64, 32, -32 };
+
+// Rows the host crops off the top and again off the bottom of the 224 line
+// picture (see overworld.c). The room camera may travel this far past the
+// vertical room bounds, so Link is on screen at the edges of a room and in
+// doorways, and the cropped rows can still be brought into view. The camera
+// bounds themselves are untouched. Vertical room transitions start and end
+// this far outside the bounds, so Link lands in the same place on screen.
+// Zero keeps the original behavior.
+#ifndef CAMERA_PAD_Y
+#define CAMERA_PAD_Y 0
+#endif
+enum { kDungCameraPadY = CAMERA_PAD_Y };
+// Link's centre must stay at least this far from the visible edge (SNES rows
+// kDungCameraPadY .. 224 - kDungCameraPadY) before the camera moves on its own.
+enum { kDungCameraEdgeMargin = 24 };
 static const uint8 kMovingWall_Sizes0[4] = { 5, 7, 11, 15 };
 static const uint8 kMovingWall_Sizes1[4] = { 8, 16, 24, 32 };
 static const uint8 kWatergateLayout[17] = {
@@ -3703,7 +3718,8 @@ void Dungeon_LoadHeader() {  // 81b564
 
   if (submodule_index == 0) {
     dung_loade_bgoffs_h_copy = BG2HOFS_copy2 & ~0x1FF;
-    dung_loade_bgoffs_v_copy = BG2VOFS_copy2 & ~0x1FF;
+    // The camera can be up to kDungCameraPadY above the top of the room.
+    dung_loade_bgoffs_v_copy = (BG2VOFS_copy2 + kDungCameraPadY) & ~0x1FF;
   } else if (submodule_index == 21 || submodule_index < 18 && submodule_index >= 6) {
     dung_loade_bgoffs_h_copy = (BG2HOFS_copy2 + 0x20) & ~0x1FF;
     dung_loade_bgoffs_v_copy = (BG2VOFS_copy2 + 0x20) & ~0x1FF;
@@ -3713,7 +3729,8 @@ void Dungeon_LoadHeader() {  // 81b564
       dung_loade_bgoffs_v_copy = (BG2VOFS_copy2 + 0x20) & ~0x1FF;
     } else {
       dung_loade_bgoffs_h_copy = (BG2HOFS_copy2 + 0x20) & ~0x1FF;
-      dung_loade_bgoffs_v_copy = (BG2VOFS_copy2 + kAdjustment[(link_direction & 0xf) >> 3]) & ~0x1FF;
+      // Going down the camera sits up to kDungCameraPadY below the bottom bound.
+      dung_loade_bgoffs_v_copy = (BG2VOFS_copy2 + kAdjustment[(link_direction & 0xf) >> 3] + (link_direction & 8 ? 0 : kDungCameraPadY)) & ~0x1FF;
     }
   }
 
@@ -8162,8 +8179,46 @@ void HandleEdgeTransition_AdjustCameraBoundaries(uint8 arg) {  // 82b9dc
   } else {
     uint8 t = link_direction & 4 ? 0 : 2;
     if (link_quadrant_y) t += 1;
-    camera_y_coord_scroll_low = kCameraBoundsY[t];
+    // The scroll that follows ends kDungCameraPadY outside the new bounds
+    // (below the top one going down, above the bottom one going up), which
+    // moves Link's row, so move the follow point with it.
+    camera_y_coord_scroll_low = kCameraBoundsY[t] + (link_direction & 4 ? -kDungCameraPadY : kDungCameraPadY);
     camera_y_coord_scroll_hi = camera_y_coord_scroll_low + 2;
+  }
+}
+
+// Moves the room camera one line vertically, like one step of the loop in
+// Dungeon_HandleCamera.
+static void DungeonCamera_StepY(int scrollamt) {
+  BG2VOFS_copy2 += scrollamt;
+  if (dungeon_room_index == 0xffff)
+    return;
+  BG1VOFS_subpixel += 0x8000;
+  BG1VOFS_copy2 += (scrollamt >> 1) + ((BG1VOFS_subpixel & 0x8000) == 0);
+  camera_y_coord_scroll_low += scrollamt;
+  camera_y_coord_scroll_hi = camera_y_coord_scroll_low + 2;
+}
+
+// Link can be placed near the top or bottom of a room without walking there
+// (a doorway, stairs, a pit landing), so the camera cannot rely on his
+// movement to use its extra travel. If he is too close to the edge of what
+// the screen shows, scroll toward the extra travel until he is not.
+static void DungeonCamera_KeepLinkOnScreen() {
+  if (kDungCameraPadY == 0 || dungeon_room_index == 0xffff)
+    return;
+  int z = (allow_scroll_z && link_z_coord != 0xffff) ? link_z_coord : 0;
+  int row = (int16)(link_y_coord - z - BG2VOFS_copy2) + 12;
+  int qm = quadrant_fullsize_y >> 1;
+  uint16 top = room_bounds_y.v[qm] - kDungCameraPadY;
+  uint16 bottom = room_bounds_y.v[qm + 2] + kDungCameraPadY;
+  for (int i = 0; i < 2; i++) {
+    if (row < kDungCameraPadY + kDungCameraEdgeMargin && (int16)(BG2VOFS_copy2 - top) > 0) {
+      DungeonCamera_StepY(-1);
+      row++;
+    } else if (row > 224 - kDungCameraPadY - kDungCameraEdgeMargin && (int16)(bottom - BG2VOFS_copy2) > 0) {
+      DungeonCamera_StepY(1);
+      row--;
+    }
   }
 }
 
@@ -8172,6 +8227,7 @@ void Dungeon_AdjustQuadrant() {  // 82ba27
 }
 
 void Dungeon_HandleCamera() {  // 82ba31
+  DungeonCamera_KeepLinkOnScreen();
   if (link_y_vel) {
     int z = (allow_scroll_z && link_z_coord != 0xffff) ? link_z_coord : 0;
     int y = ((link_y_coord - z) & 0x1ff) + 12;
@@ -8187,7 +8243,8 @@ void Dungeon_HandleCamera() {  // 82ba31
           continue;
         qm += 2;
       }
-      if (BG2VOFS_copy2 == room_bounds_y.v[qm])
+      // The camera may go kDungCameraPadY past the bounds.
+      if (BG2VOFS_copy2 == (uint16)(room_bounds_y.v[qm] + (qm >= 2 ? kDungCameraPadY : -kDungCameraPadY)))
         continue;
       BG2VOFS_copy2 += scrollamt;
       if (dungeon_room_index == 0xffff)
@@ -8261,11 +8318,17 @@ void DungeonTransition_ScrollRoom() {  // 82be03
       link_x_coord += kStaircaseTab3[i];
   } else {
     t = BG1VOFS_copy2 = BG2VOFS_copy2 = (BG2VOFS_copy2 + kStaircaseTab3[i]) & ~1;
-    if (transition_counter >= kStaircaseTab4[i])
+    // The padded scroll covers 2 * pad fewer lines, 4 lines per step.
+    if (transition_counter >= kStaircaseTab4[i] - kDungCameraPadY / 2)
       link_y_coord += kStaircaseTab3[i];
   }
 
-  if ((t & 0x1fc) == (&up_down_scroll_target)[i]) {
+  uint16 target = (&up_down_scroll_target)[i];
+  // Vertical scrolls end kDungCameraPadY outside the next bounds: above the top
+  // bound going down, below the bottom bound going up.
+  if (i < 2)
+    target += i == 0 ? -kDungCameraPadY : kDungCameraPadY;
+  if ((t & 0x1fc) == (target & 0x1fc)) {
     SetAndSaveVisitedQuadrantFlags();
     subsubmodule_index++;
     transition_counter = 0;
@@ -8279,7 +8342,11 @@ void Module07_11_0A_ScrollCamera() {  // 82be75
   link_visibility_status = tagalong_var5 = 12;
   int i = overworld_screen_transition;
   BG1VOFS_copy2 = BG2VOFS_copy2 = (BG2VOFS_copy2 + kStaircaseTab3[i]) & ~3;
-  if ((BG1VOFS_copy2 & 0x1fc) == (&up_down_scroll_target)[i]) {
+  // Ends kDungCameraPadY outside the bounds, like DungeonTransition_ScrollRoom.
+  uint16 target = (&up_down_scroll_target)[i];
+  if (i < 2)
+    target += i == 0 ? -kDungCameraPadY : kDungCameraPadY;
+  if ((BG1VOFS_copy2 & 0x1fc) == (target & 0x1fc)) {
     if (submodule_index >= 18)
       i += 2;
     link_y_coord += kStaircaseTab5[i];
