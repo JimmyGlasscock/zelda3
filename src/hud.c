@@ -1341,9 +1341,11 @@ bool Hud_RefillMagicPower() {  // 8df1b3
 }
 
 void Hud_RestoreTorchBackground() {  // 8dfa33
-  if (!link_item_torch || !dung_want_lights_out || hdr_dungeon_dark_with_lantern ||
-      dung_num_lit_torches)
+  if (!link_item_torch || !dung_want_lights_out || dung_num_lit_torches)
     return;
+  /* A door into another dark room clears the subscreen, then this runs
+   * again after the flag is already set. Putting the subscreen back only
+   * on the first call left that room black and took the status bar with it. */
   hdr_dungeon_dark_with_lantern = 1;
   if (dung_hdr_bg2_properties != 2)
     TS_copy = 1;

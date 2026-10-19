@@ -2464,7 +2464,14 @@ void OrientLampLightCone() {  // 80f567
   static const int16 kOrientLampBgTab3[] = { 64, 64, 82, -176 };
   static const int16 kOrientLampBgTab4[] = { 128, 384, 160, 160 };
 
-  if (!hdr_dungeon_dark_with_lantern || submodule_index == 20)
+  /* The door pan clears the lantern flag until the room is in place.
+   * Link still has the lamp, so the cone has to keep following him or the
+   * whole walk is black. Lit torches use the fixed color instead. */
+  if (submodule_index == 20)
+    return;
+  if (!hdr_dungeon_dark_with_lantern &&
+      !(dung_want_lights_out && link_item_torch && !dung_num_lit_torches &&
+        dung_hdr_bg2_properties != 2))
     return;
 
   uint8 a = link_direction_facing >> 1, idx = a;
