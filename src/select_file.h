@@ -1,5 +1,9 @@
 #pragma once
 
+/* Stripe lists for the file select, copy and erase screens. */
+extern const uint8 kSelectFile_Tilemap_Main[];
+extern const uint8 kSelectFile_Tilemap_Copy[];
+extern const uint8 kSelectFile_Tilemap_Erase[];
 
 bool Intro_CheckCksum(const uint8 *s);
 /* Put a playable slot back if a story event clobbered its marker or checksum.

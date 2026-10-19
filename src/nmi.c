@@ -2,6 +2,7 @@
 #include "zelda_rtl.h"
 #include "variables.h"
 #include "messaging.h"
+#include "select_file.h"
 #include "snes/snes_regs.h"
 #include "snes/ppu.h"
 #include "assets.h"
@@ -225,9 +226,9 @@ void NMI_DoUpdates() {  // 8089e0
     case 3: p = kBgTilemap_0; break;
     case 4: p = g_ram + 0x21b; break;
     case 5: p = kBgTilemap_1; break;
-    case 6: p = kBgTilemap_2; break;
-    case 7: p = kBgTilemap_3; break;
-    case 8: p = kBgTilemap_4; break;
+    case 6: p = kSelectFile_Tilemap_Main; break;
+    case 7: p = kSelectFile_Tilemap_Copy; break;
+    case 8: p = kSelectFile_Tilemap_Erase; break;
     case 9: p = kBgTilemap_5; break;
     default: assert(0);
     }
