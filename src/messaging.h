@@ -134,5 +134,11 @@ bool DidPressButtonForMap();
 
 /* DS port: Select menu calls this for the Settings row. Null skips it. */
 extern void (*SelectMenu_OnSettings)(void);
+/* After a slot is written. entrance is -1 when the save is not in a dungeon. */
+extern void (*SaveGame_NoteDungeon)(int slot, int entrance);
+/* File load asks for a dungeon entrance. Negative keeps the usual spawn. */
+extern int (*LoadFile_DungeonEntrance)(int slot);
+int SaveFile_LoadedSlot(void);
+int SaveFile_ConsumeFileLoad(void);
 /* While set, the save menu ignores presses so a closing button is not a confirm. */
 extern int SelectMenu_LockInput;

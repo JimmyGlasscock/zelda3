@@ -254,6 +254,8 @@ const uint8 *GetLightOverworldTilemap() {
   return kLightOverworldTilemap;
 }
 
+static void remember_loaded_slot(int offs);
+
 /* srm_var1 is 2, 4, or 6. A zero slot used to become a negative offset
  * and wrote the live game over the heap in front of SRAM. */
 static int SaveSlotOffs(void) {
@@ -277,6 +279,8 @@ void SaveGameFile() {  // 80894a
   uint8 *src = (uint8 *)save_dung_info;
   uint8 *slot = g_zenv.sram + offs;
 
+  remember_loaded_slot(offs);
+
   /* $7EF3E5 must stay 0x55AA or the file select treats the slot as empty
    * and the next visit deletes it. The sanctuary's death-counter store
    * lands on this word on the ARM9. */
@@ -287,6 +291,13 @@ void SaveGameFile() {  // 80894a
   word_7EF4FE = (uint16)slot[0x4fe] | ((uint16)slot[0x4ff] << 8);
   memcpy(slot + 0xf00, slot, 0x500);
   ZeldaWriteSram();
+  if (SaveGame_NoteDungeon) {
+    int entrance = -1;
+
+    if (player_is_indoors && BYTE(cur_palace_index_x2) != 0xff)
+      entrance = which_entrance;
+    SaveGame_NoteDungeon(SaveFile_LoadedSlot(), entrance);
+  }
 }
 
 void TransferMode7Characters() {  // 80e399
@@ -2112,8 +2123,36 @@ void Death_InitializeGameOverLetters() {  // 8afe20
   hookshot_effect_index = 6;
 }
 
+static int loaded_slot;
+static int load_from_file;
+
+static void remember_loaded_slot(int offs)
+{
+  int slot = offs / 0x500;
+
+  if (slot < 0 || slot > 2)
+    slot = 0;
+  loaded_slot = slot;
+}
+
+int SaveFile_LoadedSlot(void)
+{
+  return loaded_slot;
+}
+
+int SaveFile_ConsumeFileLoad(void)
+{
+  int v = load_from_file;
+
+  load_from_file = 0;
+  return v;
+}
+
 void CopySaveToWRAM() {  // 8ccfbb
   int k = 0xf;
+
+  remember_loaded_slot(WORD(g_ram[0]));
+  load_from_file = 1;
   bird_travel_x_hi[k] = 0;
   bird_travel_y_hi[k] = 0;
   bird_travel_x_lo[k] = 0;
@@ -2789,6 +2828,8 @@ void RenderText_Draw_Choose3() {  // 8ecef7
 }
 
 void (*SelectMenu_OnSettings)(void);
+void (*SaveGame_NoteDungeon)(int slot, int entrance);
+int (*LoadFile_DungeonEntrance)(int slot);
 int SelectMenu_LockInput;
 
 /* Third row of the save box. Three spaces match "   Save and Quit". */

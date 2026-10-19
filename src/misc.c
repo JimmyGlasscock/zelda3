@@ -562,6 +562,18 @@ void Module05_LoadFile() {  // 828136
   sprite_gfx_subset_3 = 70;
   word_7E02CD = 0x200;
   virq_trigger = 48;
+  if (SaveFile_ConsumeFileLoad() && LoadFile_DungeonEntrance) {
+    int entrance = LoadFile_DungeonEntrance(SaveFile_LoadedSlot());
+
+    /* death_var5 keeps the overworld doorway that was stored with the save. */
+    if (entrance >= 0) {
+      which_entrance = (uint8)entrance;
+      death_var4 = 0;
+      death_var5 = 1;
+      LoadDungeonRoomRebuildHUD();
+      return;
+    }
+  }
   if (savegame_is_darkworld) {
     if (player_is_indoors) {
       LoadDungeonRoomRebuildHUD();
