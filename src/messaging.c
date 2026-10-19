@@ -2788,8 +2788,88 @@ void RenderText_Draw_Choose3() {  // 8ecef7
   }
 }
 
+void (*SelectMenu_OnSettings)(void);
+int SelectMenu_LockInput;
+
+/* Third row of the save box. Three spaces match "   Save and Quit". */
+static int select_line_drawn;
+static const uint8 kSelectSettingsLine[] = {
+  0x59, 0x59, 0x59,
+  0x12, 0x1e, 0x2d, 0x2d, 0x22, 0x27, 0x20, 0x2c, 0
+};
+
+static void SelectMenu_VwfLine(int line, const uint8 *s) {
+  vwf_curline = kVWF_RowPositions[line];
+  vwf_flag_next_line = 1;
+  vwf_arr[kVWF_RenderCharacter_linePositions[line]] = 0;
+  while (*s)
+    VWF_RenderSingle(*s++);
+}
+
+/* '>' is 8px and a space is 4, so two spaces cover the arrow. */
+static void SelectMenu_Cursor(int line, int on) {
+  static const uint8 kArrow[] = { 0x44, 0 };
+  static const uint8 kBlank[] = { 0x59, 0x59, 0 };
+  SelectMenu_VwfLine(line, on ? kArrow : kBlank);
+}
+
+/* Continue, Save and Quit, then Settings. Choice 2 leaves the box open. */
+static void SelectMenu_Choose3(void) {
+  uint8 y;
+  int choice, next;
+
+  if (SelectMenu_LockInput)
+    return;
+  if (!select_line_drawn) {
+    SelectMenu_VwfLine(2, kSelectSettingsLine);
+    select_line_drawn = 1;
+  }
+  if (text_wait_countdown2 != 0) {
+    if (--text_wait_countdown2 == 1)
+      sound_effect_2 = 36;
+    return;
+  }
+  y = (filtered_joypad_L & 0xc0) | filtered_joypad_H;
+  /* B leaves the box the same way as Continue Game. */
+  if (filtered_joypad_H & 0x80) {
+    sound_effect_1 = 43;
+    choice_in_multiselect_box = 0;
+    text_render_state = 4;
+    return;
+  }
+  if (y & 0xd0) {
+    sound_effect_1 = 43;
+    if (choice_in_multiselect_box == 2) {
+      if (SelectMenu_OnSettings)
+        SelectMenu_OnSettings();
+      return;
+    }
+    text_render_state = 4;
+    return;
+  }
+  if (!(y & 12))
+    return;
+  choice = choice_in_multiselect_box;
+  if (choice > 2)
+    choice = 0;
+  if (y & 8)
+    next = choice == 0 ? 2 : choice - 1;
+  else
+    next = choice == 2 ? 0 : choice + 1;
+  if (next == choice)
+    return;
+  SelectMenu_Cursor(choice, 0);
+  SelectMenu_Cursor(next, 1);
+  choice_in_multiselect_box = (uint8)next;
+  sound_effect_2 = 32;
+}
+
 void RenderText_Draw_Choose1Or2() {  // 8ecf72
   uint8 y;
+  if (main_module_index == 14 && submodule_index == 11) {
+    SelectMenu_Choose3();
+    return;
+  }
   if (text_wait_countdown2 != 0) {
     if (--text_wait_countdown2 == 1)
       sound_effect_2 = 36;
@@ -3020,6 +3100,9 @@ void Death_PrepFaint() {  // 8ffa6f
 
 void DisplaySelectMenu() {
   choice_in_multiselect_box_bak = choice_in_multiselect_box;
+  /* The scripted arrow starts on Continue. */
+  choice_in_multiselect_box = 0;
+  select_line_drawn = 0;
   dialogue_message_index = 0x186;
   uint8 bak = main_module_index;
   Main_ShowTextMessage();

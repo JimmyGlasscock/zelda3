@@ -131,3 +131,8 @@ void Death_PlayerSwoon();
 void Death_PrepFaint();
 void DisplaySelectMenu();
 bool DidPressButtonForMap();
+
+/* DS port: Select menu calls this for the Settings row. Null skips it. */
+extern void (*SelectMenu_OnSettings)(void);
+/* While set, the save menu ignores presses so a closing button is not a confirm. */
+extern int SelectMenu_LockInput;
