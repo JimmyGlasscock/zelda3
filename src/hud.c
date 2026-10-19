@@ -25,6 +25,33 @@ static void Hud_Update_Hearts();
 
 const uint8 kMaxBombsForLevel[] = { 10, 15, 20, 25, 30, 35, 40, 50 };
 const uint8 kMaxArrowsForLevel[] = { 30, 35, 40, 45, 50, 55, 60, 70 };
+
+static uint8 carry_bombs = 10;
+static uint8 carry_arrows = 30;
+
+uint8 Hud_CarryBombs(void)
+{
+  return carry_bombs;
+}
+
+uint8 Hud_CarryArrows(void)
+{
+  return carry_arrows;
+}
+
+void Hud_SetCarryCaps(uint8 bombs, uint8 arrows)
+{
+  carry_bombs = bombs;
+  carry_arrows = arrows;
+}
+
+static void Hud_ClampAmmo(void)
+{
+  if (link_item_bombs > carry_bombs)
+    link_item_bombs = carry_bombs;
+  if (link_num_arrows > carry_arrows)
+    link_num_arrows = carry_arrows;
+}
 static const uint8 kMaxHealthForLevel[] = { 9, 9, 9, 9, 9, 9, 9, 9, 17, 17, 17, 17, 17, 17, 17, 25, 25, 25, 25, 25, 25 };
 
 #define HUDXY(x, y) ((x) + (y) * 32)
@@ -369,6 +396,7 @@ static int MaxRupees() {
 }
 
 void Hud_RefillLogic() {  // 8ddb92
+  Hud_ClampAmmo();
   if (overworld_map_state)
     return;
   if (link_magic_filler) {
@@ -406,13 +434,13 @@ void Hud_RefillLogic() {  // 8ddb92
 
   if (link_bomb_filler) {
     link_bomb_filler--;
-    if (link_item_bombs != kMaxBombsForLevel[link_bomb_upgrades])
+    if (link_item_bombs != Hud_CarryBombs())
       link_item_bombs++;
   }
 
   if (link_arrow_filler) {
     link_arrow_filler--;
-    if (link_num_arrows != kMaxArrowsForLevel[link_arrow_upgrades])
+    if (link_num_arrows != Hud_CarryArrows())
       link_num_arrows++;
     if (link_item_bow && (link_item_bow & 1) == 1) {
       link_item_bow++;
@@ -1444,13 +1472,14 @@ static void Hud_Update_Inventory() {  // 8dfc09
   dst[HUDXY(1, 1)] = base_tile | d[2];
   dst[HUDXY(2, 1)] = base_tile | d[3];
 
+  Hud_ClampAmmo();
   Hud_IntToDecimal(link_item_bombs, d);
-  base_tile = base_tiles[link_item_bombs == kMaxBombsForLevel[link_bomb_upgrades]];
+  base_tile = base_tiles[link_item_bombs == Hud_CarryBombs()];
   dst[HUDXY(4, 1)] = base_tile | d[2];
   dst[HUDXY(5, 1)] = base_tile | d[3];
 
   Hud_IntToDecimal(link_num_arrows, d);
-  base_tile = base_tiles[link_num_arrows == kMaxArrowsForLevel[link_arrow_upgrades]];
+  base_tile = base_tiles[link_num_arrows == Hud_CarryArrows()];
   dst[HUDXY(7, 1)] = base_tile | d[2];
   dst[HUDXY(8, 1)] = base_tile | d[3];
 

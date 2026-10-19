@@ -24265,7 +24265,7 @@ void Sprite_BombShop_Bomb(int k) {  // 9ee190
   if (!ShopItem_CheckForAPress(k))
     return;
 
-  if (link_item_bombs != kMaxBombsForLevel[link_bomb_upgrades]) {
+  if (link_item_bombs != Hud_CarryBombs()) {
     if (!ShopItem_HandleCost(100)) {
       Sprite_ShowMessageUnconditional(0x17c);
       ShopItem_PlayBeep(k);
@@ -25251,7 +25251,7 @@ void ShopItem_Arrows(int k) {  // 9ef2af
     return;
   Sprite_BehaveAsBarrier(k);
   if (ShopItem_CheckForAPress(k)) {
-    if (link_num_arrows == kMaxArrowsForLevel[link_arrow_upgrades]) {
+    if (link_num_arrows == Hud_CarryArrows()) {
       Sprite_ShowSolicitedMessage(k, 0x16e);
       ShopItem_PlayBeep(k);
     } else if (ShopItem_HandleCost(30)) {
@@ -25270,7 +25270,7 @@ void ShopItem_Bombs(int k) {  // 9ef2f0
     return;
   Sprite_BehaveAsBarrier(k);
   if (ShopItem_CheckForAPress(k)) {
-    if (link_item_bombs == kMaxBombsForLevel[link_bomb_upgrades]) {
+    if (link_item_bombs == Hud_CarryBombs()) {
       Sprite_ShowSolicitedMessage(k, 0x16e);
       ShopItem_PlayBeep(k);
     } else if (ShopItem_HandleCost(50)) {

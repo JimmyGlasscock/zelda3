@@ -17,6 +17,11 @@ enum kHudItems {
   kHudItem_Bottle4 = 24,
 };
 
+/* Carry limits chosen in the port settings. 10/30 are the base caps, 99 is the other. */
+uint8 Hud_CarryBombs(void);
+uint8 Hud_CarryArrows(void);
+void Hud_SetCarryCaps(uint8 bombs, uint8 arrows);
+
 void Hud_RefreshIcon();
 uint8 CheckPalaceItemPosession();
 void Hud_FloorIndicator();
