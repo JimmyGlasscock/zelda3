@@ -1898,6 +1898,30 @@ void LoadGearPalettes_bunny() {  // 8ed6dd
   LoadGearPalettes(link_sword_type, link_shield_type, 3);
 }
 
+/* #d7b82a in SNES BGR555. Replaces the pink hair fill (0x599D) and the
+ * bunny hood's matching pink (0x3D97). The orange hair edge stays. */
+enum { kHairBlonde = 0x16da, kHairPink = 0x599d, kHairBunny = 0x3d97 };
+
+static int hair_blonde;
+
+static void Palette_RecolorHair(uint16 *p, int n)
+{
+  int i;
+
+  if (!hair_blonde)
+    return;
+  for (i = 0; i < n; i++) {
+    if (p[i] == kHairPink || p[i] == kHairBunny)
+      p[i] = kHairBlonde;
+  }
+}
+
+static void Palette_ApplyHair(void)
+{
+  Palette_RecolorHair(&main_palette_buffer[0x1e2 >> 1], 15);
+  Palette_RecolorHair(&aux_palette_buffer[0x1e2 >> 1], 15);
+}
+
 void LoadGearPalettes(uint8 sword, uint8 shield, uint8 armor) {  // 8ed6e8
   const uint16 *src = kPalette_Sword + (sword && sword != 255 ? sword - 1 : 0) * 3;
   Palette_LoadMultiple_Arbitrary(src, 0x1b2, 2);
@@ -1907,6 +1931,23 @@ void LoadGearPalettes(uint8 sword, uint8 shield, uint8 armor) {  // 8ed6e8
 
   src = kPalette_ArmorAndGloves + armor * 15;
   Palette_LoadMultiple_Arbitrary(src, 0x1e2, 14);
+  Palette_ApplyHair();
+  flag_update_cgram_in_nmi++;
+}
+
+void Palette_SetHairBlonde(int on)
+{
+  int next = on != 0;
+
+  if (next == hair_blonde)
+    return;
+  hair_blonde = next;
+  if (hair_blonde)
+    Palette_ApplyHair();
+  else if (link_is_bunny_mirror | link_is_bunny)
+    LoadGearPalettes_bunny();
+  else
+    LoadActualGearPalettes();
   flag_update_cgram_in_nmi++;
 }
 
@@ -2058,6 +2099,7 @@ void Palette_Load_LinkArmorAndGloves() {  // 9bedf9
   const uint16 *src = kPalette_ArmorAndGloves + link_armor * 15;
   Palette_LoadMultiple_Arbitrary(src, kPal_ArmorGloves, 14);
   Palette_UpdateGlovesColor();
+  Palette_ApplyHair();
 }
 
 void Palette_UpdateGlovesColor() {  // 9bee1b
@@ -2139,6 +2181,8 @@ void Palette_LoadForFileSelect_Armor(int k, uint8 armor, uint8 gloves) {  // 9bf
     aux_palette_buffer[k + 0x81 + i] = main_palette_buffer[k + 0x81 + i] = pal[i];
   if (gloves)
     aux_palette_buffer[k + 0x8d] = main_palette_buffer[k + 0x8d] = kGlovesColor[gloves - 1];
+  Palette_RecolorHair(&aux_palette_buffer[k + 0x81], 15);
+  Palette_RecolorHair(&main_palette_buffer[k + 0x81], 15);
 }
 
 void Palette_LoadForFileSelect_Sword(int k, uint8 sword) {  // 9bf072

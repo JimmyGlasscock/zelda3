@@ -143,6 +143,7 @@ void Palette_Load_SpriteEnvironment_Dungeon();
 void Palette_MiscSprite_Outdoors();
 void Palette_Load_DungeonMapSprite();
 void Palette_Load_LinkArmorAndGloves();
+void Palette_SetHairBlonde(int on);
 void Palette_UpdateGlovesColor();
 void Palette_Load_DungeonMapBG();
 void Palette_Load_HUD();
