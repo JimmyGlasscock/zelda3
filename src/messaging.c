@@ -2288,6 +2288,9 @@ uint32 Text_DecodeCmd(uint8 a, const uint8 *src) {
   }
 }
 
+/* Window type 2 never draws a border. Zelda's plea uses that. */
+static uint8 text_boxless;
+
 // Perform initial parsing of the string, expanding words, processing some commands, etc.
 void Text_LoadCharacterBuffer() {  // 8ec4e2
   MemBlk dictionary = FindIndexInMemblk(g_zenv.dialogue_blk, 0);
@@ -2334,6 +2337,7 @@ void Text_LoadCharacterBuffer() {  // 8ec4e2
   }
   *dst = 0x7f;
   dialogue_msg_read_pos = 0;
+  text_boxless = (text_render_state == 2);
 }
 
 uint8 *Text_WritePlayerName(uint8 *p) {  // 8ec5b3
@@ -2363,6 +2367,9 @@ uint8 Text_FilterPlayerNameCharacters(uint8 a) {  // 8ec639
   }
   return a;
 }
+
+/* Holding A races boxless text only. Bordered dialogue is unchanged. */
+enum { kTextFfDwell = 20 };
 
 void Text_Render() {  // 8ec8d9
   kText_Render[text_render_state]();
@@ -2407,35 +2414,84 @@ void RenderText_Draw_CharacterTilemap() {  // 8ec97d
   text_render_state++;
 }
 
+static void Text_UploadMessage(void) {
+  nmi_subroutine_index = 2;
+  nmi_disable_core_updates = 2;
+}
+
+/* 1 = the wait-for-key command should advance. Close-on-end never advances it. */
+static int Text_FastForwardPrompt(int ff, int filled, int close_box) {
+  int pressed = filtered_joypad_H | filtered_joypad_L;
+  if (!close_box)
+    pressed &= 0xc0;
+  if (ff && text_wait_countdown2 > kTextFfDwell)
+    text_wait_countdown2 = kTextFfDwell;
+  if (text_wait_countdown2 != 0) {
+    if (--text_wait_countdown2 == 1)
+      sound_effect_2 = 36;
+    return 0;
+  }
+  /* A page drawn earlier in this call only arms the pause, so it stays readable. */
+  if (pressed || (ff && !filled)) {
+    text_wait_countdown2 = 28;
+    if (close_box)
+      text_render_state = 4;
+    return !close_box;
+  }
+  if (ff && filled)
+    text_wait_countdown2 = kTextFfDwell;
+  return 0;
+}
+
 void RenderText_Draw_MessageCharacters() {  // 8ec984
+  int ff = text_boxless && (joypad1L_last & kJoypadL_A) != 0;
+  int filled = 0;
+  int guard = 0;
+  int continue_ff = 0;
+  uint32 cmd = 0;
+
 RESTART:;
-  uint32 cmd = Text_DecodeCmd(messaging_text_buffer[dialogue_msg_read_pos],
+  if (++guard > 512) {
+    Text_UploadMessage();
+    return;
+  }
+  continue_ff = 0;
+  cmd = Text_DecodeCmd(messaging_text_buffer[dialogue_msg_read_pos],
       &messaging_text_buffer[dialogue_msg_read_pos + 1]);
 
   switch (TEXTCMD_CMD(cmd)) {
   case kTextCmd_IsLetter:
-    if (vwf_line_speed_cur >= 2) {
+    if (!ff && vwf_line_speed_cur >= 2) {
       vwf_line_speed_cur--;
       break;
     }
     VWF_RenderSingle(TEXTCMD_PARAM(cmd));
     dialogue_msg_read_pos += 1 + TEXTCMD_MULTIBYTE(cmd);
-    if (vwf_line_speed_cur == 0)
+    filled = 1;
+    if (ff || vwf_line_speed_cur == 0)
       goto RESTART;
     break;
   case kTextCmd_NextPic:  // RenderText_Draw_NextImage
     if (main_module_index == 20) {
       PaletteFilterHistory();
-      if (!BYTE(palette_filter_countdown))
+      if (!BYTE(palette_filter_countdown)) {
+        continue_ff = ff;
         goto COMMAND_DONE;
+      }
     } else {
+      continue_ff = ff;
       goto COMMAND_DONE;
     }
     break;
   case kTextCmd_Choose:  // RenderText_Draw_Choose2LowOr3
+    /* The press that started the skip must not confirm the prompt. */
+    if (ff && filled)
+      break;
     RenderText_Draw_Choose2LowOr3();
     break;
   case kTextCmd_Item:  // RenderText_Draw_ChooseItem
+    if (ff && filled)
+      break;
     RenderText_Draw_ChooseItem();
     break;
   case kTextCmd_Name:
@@ -2454,28 +2510,53 @@ RESTART:;
     break;
   case kTextCmd_ScrollSpd:
     dialogue_scroll_speed = TEXTCMD_PARAM(cmd);
+    continue_ff = ff;
     goto COMMAND_DONE;
   case kTextCmd_Selchg:   // RenderText_Draw_Choose2HiOr3
+    if (ff && filled)
+      break;
     RenderText_Draw_Choose2HiOr3();
     break;
   case kTextCmd_Choose3:  // RenderText_Draw_Choose3
+    if (ff && filled)
+      break;
     RenderText_Draw_Choose3();
     break;
   case kTextCmd_Choose2:  // RenderText_Draw_Choose1Or2
+    if (ff && filled)
+      break;
     RenderText_Draw_Choose1Or2();
     break;
-  case kTextCmd_Scroll:  // RenderText_Draw_Scroll
+  case kTextCmd_Scroll: { // RenderText_Draw_Scroll
+    if (ff) {
+      int steps = 0;
+      bool done = false;
+      /* One pixel per frame is the scripted scroll. Four pixels keeps the line visible. */
+      while (!done && steps++ < 4)
+        done = RenderText_Draw_Scroll();
+      if (!done)
+        break;
+      continue_ff = 1;
+      goto COMMAND_DONE;
+    }
     if (RenderText_Draw_Scroll())
       goto COMMAND_DONE;
     break;
+  }
   case kTextCmd_1:  //
   case kTextCmd_2:  //
   case kTextCmd_3:  // VWF_SetLine
     vwf_curline = kVWF_RowPositions[TEXTCMD_CMD(cmd) - kTextCmd_1];
     vwf_flag_next_line = 1;
+    continue_ff = ff;
     goto COMMAND_DONE;
   case kTextCmd_Wait:  // RenderText_Draw_Wait
-    switch (joypad1L_last & 0x80 ? 1 : text_wait_countdown) {
+    if (ff) {
+      BYTE(text_wait_countdown) = 0;
+      continue_ff = 1;
+      goto COMMAND_DONE;
+    }
+    switch ((joypad1L_last & kJoypadL_A) ? 1 : text_wait_countdown) {
     case 0:
       text_wait_countdown = kText_WaitDurations[TEXTCMD_PARAM(cmd)] - 1;
       break;
@@ -2489,38 +2570,26 @@ RESTART:;
     break;
   case kTextCmd_Sound:  // RenderText_Draw_PlaySfx
     sound_effect_2 = TEXTCMD_PARAM(cmd);
+    continue_ff = ff;
     goto COMMAND_DONE;
   case kTextCmd_Speed:  // RenderText_Draw_SetSpeed
     vwf_line_speed = vwf_line_speed_cur = TEXTCMD_PARAM(cmd);
+    continue_ff = ff;
     goto COMMAND_DONE;
   case kTextCmd_Waitkey:  // RenderText_Draw_PauseForInput
-    if (text_wait_countdown2 != 0) {
-      if (--text_wait_countdown2 == 1)
-        sound_effect_2 = 36;
-    } else {
-      if ((filtered_joypad_H | filtered_joypad_L) & 0xc0) {
-        text_wait_countdown2 = 28;
-        goto COMMAND_DONE;
-      }
-    }
+    if (Text_FastForwardPrompt(ff, filled, 0))
+      goto COMMAND_DONE;
     break;
   case kTextCmd_EndMessage:  // RenderText_Draw_Terminate
-    if (text_wait_countdown2 != 0) {
-      if (--text_wait_countdown2 == 1)
-        sound_effect_2 = 36;
-    } else {
-      if ((filtered_joypad_H | filtered_joypad_L)) {
-        text_render_state = 4;
-        text_wait_countdown2 = 28;
-      }
-    }
+    Text_FastForwardPrompt(ff, filled, 1);
     break;
   }
   if (0) COMMAND_DONE: {
     dialogue_msg_read_pos += 1 + TEXTCMD_MULTIBYTE(cmd);
+    if (continue_ff)
+      goto RESTART;
   }
-  nmi_subroutine_index = 2;
-  nmi_disable_core_updates = 2;
+  Text_UploadMessage();
 }
 
 void RenderText_Draw_Finish() {  // 8eca35
