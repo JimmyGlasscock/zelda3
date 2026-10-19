@@ -206,6 +206,8 @@ void FlagMovingIntoSlopes_Y();
 void FlagMovingIntoSlopes_X();
 void Link_HandleRecoiling();
 void Player_HandleIncapacitated_Inner2();
+uint8 Player_RunSpeed(void);
+void Player_SetRunSpeed(uint8 mul);
 void Link_HandleVelocity();
 void Link_MovePosition();
 void Link_HandleVelocityAndSandDrag(uint16 x, uint16 y);

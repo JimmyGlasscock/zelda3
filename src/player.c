@@ -14,6 +14,33 @@
 #include "sprite_main.h"
 
 static bool g_ApplyLinksMovementToCamera_called;
+static uint8 run_mul = 1;
+
+uint8 Player_RunSpeed(void)
+{
+  return run_mul;
+}
+
+void Player_SetRunSpeed(uint8 mul)
+{
+  if (mul < 1)
+    mul = 1;
+  if (mul > 3)
+    mul = 3;
+  run_mul = mul;
+}
+
+static int anim_step(uint8 threshold)
+{
+  uint8 n = (uint8)(link_counter_var1 + run_mul);
+
+  if (n < threshold) {
+    link_counter_var1 = n;
+    return 0;
+  }
+  link_counter_var1 = 0;
+  return 1;
+}
 
 static const uint8 kSpinAttackDelays[] = { 1, 0, 0, 0, 0, 3, 0, 0, 1, 0, 3, 3, 3, 3, 4, 4, 1, 5 };
 static const uint8 kFireBeamSounds[] = { 1, 2, 3, 4, 0, 9, 18, 27 };
@@ -1665,14 +1692,12 @@ void PlayerHandler_04_Swimming() {  // 87963b
     if ((uint8)swimcoll_var5[0] != 2 && (uint8)swimcoll_var5[1] != 2)
       ResetAllAcceleration();
     link_animation_steps &= 1;
-    if (++link_counter_var1 >= 16) {
-      link_counter_var1 = 0;
+    if (anim_step(16)) {
       byte_7E02CC = 0;
       link_animation_steps = (link_animation_steps & 1) ^ 1;
     }
   } else {
-    if (++link_counter_var1 >= 8) {
-      link_counter_var1 = 0;
+    if (anim_step(8)) {
       link_animation_steps = (link_animation_steps + 1) & 3;
       byte_7E02CC = kSwimmingTab1[link_animation_steps];
     }
@@ -5778,9 +5803,10 @@ void Link_MovePosition() {  // 87e370
   }
 
   uint32 tmp;
-  tmp = link_subpixel_x + (int8)link_actual_vel_x * 16 + link_x_coord * 256;
+  int mul = run_mul;
+  tmp = link_subpixel_x + (int)(int8)link_actual_vel_x * 16 * mul + link_x_coord * 256;
   link_subpixel_x = (uint8)tmp, link_x_coord = (tmp >> 8);
-  tmp = link_subpixel_y + (int8)link_actual_vel_y * 16 + link_y_coord * 256;
+  tmp = link_subpixel_y + (int)(int8)link_actual_vel_y * 16 * mul + link_y_coord * 256;
   link_subpixel_y = (uint8)tmp, link_y_coord = (tmp >> 8);
   if (link_auxiliary_state) {
     tmp = link_subpixel_z + (int8)link_actual_vel_z * 16 + link_z_coord * 256;
@@ -5856,13 +5882,14 @@ void Player_SomethingWithVelocity_TiredOrSwim(uint16 xvel, uint16 yvel) {  // 87
   uint8 u;
 
   uint32 tmp;
-  tmp = link_subpixel_x + (int16)xvel + link_x_coord * 256;
+  int mul = run_mul;
+  tmp = link_subpixel_x + (int)(int16)xvel * mul + link_x_coord * 256;
   link_subpixel_x = (uint8)tmp, link_x_coord = (tmp >> 8);
 
   u = xvel >> 8;
   link_actual_vel_x = ((sign8(u) ? -u : u) << 4) | ((uint8)xvel >> 4);
 
-  tmp = link_subpixel_y + (int16)yvel + link_y_coord * 256;
+  tmp = link_subpixel_y + (int)(int16)yvel * mul + link_y_coord * 256;
   link_subpixel_y = (uint8)tmp, link_y_coord = (tmp >> 8);
   u = yvel >> 8;
   link_actual_vel_y = ((sign8(u) ? -u : u) << 4) | ((uint8)yvel >> 4);
@@ -5989,8 +6016,7 @@ void Link_HandleMovingAnimation_StartWithDash() {  // 87e704
 //bugfix: tempbunny animation steps are wrong due to missing check
   if (link_player_handler_state == 23 || (enhanced_features0 & kFeatures0_MiscBugFixes && link_player_handler_state == 28)) {  // bunny states
     if (link_animation_steps < 4 && player_on_somaria_platform != 2) {
-      if (++link_counter_var1 >= tab2[x]) {
-        link_counter_var1 = 0;
+      if (anim_step(tab2[x])) {
         if (++link_animation_steps == 4)
           link_animation_steps = 0;
       }
@@ -6014,8 +6040,7 @@ void Link_HandleMovingAnimation_StartWithDash() {  // 87e704
         x += 8;
       if (player_on_somaria_platform == 2)
         return;
-      if (++link_counter_var1 >= tab3[x]) {
-        link_counter_var1 = 0;
+      if (anim_step(tab3[x])) {
         if (++link_animation_steps == 9)
           link_animation_steps = 1;
       }
@@ -6025,8 +6050,7 @@ void Link_HandleMovingAnimation_StartWithDash() {  // 87e704
   // endif_4
 
   if (link_animation_steps < 6 && player_on_somaria_platform != 2) {
-    if (++link_counter_var1 >= tab2[x]) {
-      link_counter_var1 = 0;
+    if (anim_step(tab2[x])) {
       if (++link_animation_steps == 6)
         link_animation_steps = 0;
     }
@@ -6070,15 +6094,13 @@ void Link_HandleMovingAnimation_Dash() {  // 87e88f
     t--;
 
   if (button_b_frames < 9 && !draw_water_ripples_or_grass) {
-    if (++link_counter_var1 >= kDashTab4[t * 8]) {
-      link_counter_var1 = 0;
+    if (anim_step(kDashTab4[t * 8])) {
       link_animation_steps++;
       if (link_animation_steps == 9)
         link_animation_steps = 1;
     }
   } else {
-    if (++link_counter_var1 >= kDashTab5[t]) {
-      link_counter_var1 = 0;
+    if (anim_step(kDashTab5[t])) {
       link_animation_steps++;
       if (link_animation_steps >= 6)
         link_animation_steps = 0;
