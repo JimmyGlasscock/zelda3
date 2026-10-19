@@ -14,6 +14,7 @@
 #include "ancilla.h"
 #include "hud.h"
 #include "assets.h"
+#include "poly.h"
 
 static const uint16 kPolyhedralPalette[8] = { 0, 0x14d, 0x1b0, 0x1f3, 0x256, 0x279, 0x2fd, 0x35f };
 
@@ -503,10 +504,28 @@ void Polyhedral_InitializeThread() {  // 89f7de
   memcpy(&g_ram[0x1f32], kPolyThreadInit, 13);
 }
 
+static uint8 intro_catchup_sword;
+static uint16 intro_catchup_frames;
+
+bool ZeldaIntroCatchingUp(void) {
+  return intro_catchup_sword != 0;
+}
+
+void ZeldaIntroCancelCatchup(void) {
+  intro_catchup_sword = 0;
+  intro_catchup_frames = 0;
+}
+
 void Module00_Intro() {  // 8cc120
   uint8 skip_at = enhanced_features0 & kFeatures0_SkipIntroOnKeypress ? 4 : 8;
+  uint8 pressed = filtered_joypad_L | filtered_joypad_H;
 
-  if (submodule_index >= skip_at && ((filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xd0)) {
+  /* Before the sword falls, any press jumps to that moment. The host
+   * runs the skipped frames, including the title music, without showing them. */
+  if (submodule_index < 6 && pressed)
+    intro_catchup_sword = 1;
+  else if (submodule_index >= skip_at && ((filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xd0)) {
+    ZeldaIntroCancelCatchup();
     FadeMusicAndResetSRAMMirror();
     return;
   }
@@ -523,6 +542,15 @@ void Module00_Intro() {  // 8cc120
   case 6: Intro_SwordComingDown(); break;
   case 7: Intro_FadeInBg(); break;
   case 8: Intro_WaitPlayer(); break;
+  }
+
+  if (intro_catchup_sword &&
+      (submodule_index >= 6 || ++intro_catchup_frames > 900)) {
+    if (submodule_index >= 6) {
+      Poly_RunFrame();
+      nmi_flag_update_polyhedral = 0xff;
+    }
+    ZeldaIntroCancelCatchup();
   }
 }
 

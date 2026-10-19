@@ -55,6 +55,9 @@ typedef struct ZeldaM7Line {
 void ZeldaCaptureMode7(ZeldaM7Line *lines, int height);
 void ZeldaRunFrameInternal(uint16 input, int run_what);
 bool ZeldaRunFrame(int input_state);
+/* True while the title is rushing ahead to the sword drop. */
+bool ZeldaIntroCatchingUp(void);
+void ZeldaIntroCancelCatchup(void);
 void LoadSongBank(const uint8 *p);
 void ZeldaApuLock();
 void ZeldaApuUnlock();

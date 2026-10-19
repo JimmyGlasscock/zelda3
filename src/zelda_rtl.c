@@ -305,9 +305,12 @@ void ZeldaInitialize() {
 
 static void ZeldaRunPolyLoop() {
   if (intro_did_run_step && !nmi_flag_update_polyhedral) {
-    Poly_RunFrame();
+    /* The sword-drop skip still advances the spin each step, but drawing
+     * every pose is most of the cost. The landing frame draws the settled one. */
+    if (!ZeldaIntroCatchingUp())
+      Poly_RunFrame();
     intro_did_run_step = 0;
-    nmi_flag_update_polyhedral = 0xff;
+    nmi_flag_update_polyhedral = ZeldaIntroCatchingUp() ? 0 : 0xff;
   }
 }
 
