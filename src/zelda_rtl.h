@@ -58,6 +58,8 @@ bool ZeldaRunFrame(int input_state);
 /* True while the title is rushing ahead to the sword drop. */
 bool ZeldaIntroCatchingUp(void);
 void ZeldaIntroCancelCatchup(void);
+/* True once, when a skip has just landed on the sword drop. */
+bool ZeldaIntroCatchupLanded(void);
 void LoadSongBank(const uint8 *p);
 void ZeldaApuLock();
 void ZeldaApuUnlock();

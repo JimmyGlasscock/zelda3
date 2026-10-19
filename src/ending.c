@@ -505,6 +505,7 @@ void Polyhedral_InitializeThread() {  // 89f7de
 }
 
 static uint8 intro_catchup_sword;
+static uint8 intro_catchup_landed;
 static uint16 intro_catchup_frames;
 
 bool ZeldaIntroCatchingUp(void) {
@@ -514,6 +515,12 @@ bool ZeldaIntroCatchingUp(void) {
 void ZeldaIntroCancelCatchup(void) {
   intro_catchup_sword = 0;
   intro_catchup_frames = 0;
+}
+
+bool ZeldaIntroCatchupLanded(void) {
+  bool landed = intro_catchup_landed != 0;
+  intro_catchup_landed = 0;
+  return landed;
 }
 
 void Module00_Intro() {  // 8cc120
@@ -549,6 +556,7 @@ void Module00_Intro() {  // 8cc120
     if (submodule_index >= 6) {
       Poly_RunFrame();
       nmi_flag_update_polyhedral = 0xff;
+      intro_catchup_landed = 1;
     }
     ZeldaIntroCancelCatchup();
   }
