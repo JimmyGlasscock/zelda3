@@ -2125,6 +2125,9 @@ void Death_InitializeGameOverLetters() {  // 8afe20
 
 static int loaded_slot;
 static int load_from_file;
+/* Set once a slot has been copied into WRAM. Cleared on the way back to the title. */
+static int game_is_loaded;
+static int lid_pause;
 
 static void remember_loaded_slot(int offs)
 {
@@ -2182,6 +2185,7 @@ void CopySaveToWRAM() {  // 8ccfbb
   which_entrance = 0;
   nmi_disable_core_updates = 0;
   hud_palette = 0;
+  game_is_loaded = 1;
 }
 
 void RenderText() {  // 8ec440
@@ -3152,4 +3156,111 @@ void DisplaySelectMenu() {
   submodule_index = 11;
   saved_module_for_menu = main_module_index;
   main_module_index = 14;
+}
+
+static int select_menu_is_open(void) {
+  return main_module_index == 14 && submodule_index == 11;
+}
+
+static int at_title_or_files(void) {
+  return main_module_index == 0 || main_module_index == 1 || main_module_index == 20;
+}
+
+/* Same gates as the Select press in player control. */
+static int link_can_open_select(void) {
+  if (submodule_index != 0)
+    return 0;
+  if (flag_custom_spell_anim_active | flag_is_link_immobilized | flag_block_link_menu)
+    return 0;
+  if (main_module_index == 7)
+    return 1;
+  if (main_module_index == 9 || main_module_index == 11)
+    return trigger_special_entrance == 0;
+  return 0;
+}
+
+/* Backups are stored when the fade-out finishes, which advances state to 1. */
+static void jump_menu_exit(int state) {
+  if (overworld_map_state == 0 || overworld_map_state >= state)
+    return;
+  INIDISP_copy = 1;
+  overworld_map_state = (uint8)state;
+}
+
+void SelectMenu_ForgetGame(void) {
+  game_is_loaded = 0;
+  lid_pause = 0;
+}
+
+int SelectMenu_LidClosed(void) {
+  if (at_title_or_files()) {
+    SelectMenu_ForgetGame();
+    return 0;
+  }
+  /* Game over, save-and-quit, and the credits own the screen. */
+  if (!game_is_loaded || main_module_index == 18 ||
+      main_module_index == 23 || main_module_index == 26)
+    return 0;
+  if (select_menu_is_open()) {
+    lid_pause = 0;
+    return 1;
+  }
+  lid_pause = 1;
+  return 1;
+}
+
+void SelectMenu_LidStep(void) {
+  if (!lid_pause)
+    return;
+  if (at_title_or_files() || !game_is_loaded) {
+    SelectMenu_ForgetGame();
+    return;
+  }
+  if (select_menu_is_open()) {
+    lid_pause = 0;
+    return;
+  }
+
+  /* Inventory, including the bottle list. Select itself closes it this way. */
+  if (main_module_index == 14 && submodule_index == 1) {
+    BG3VOFS_copy2 = -8;
+    Hud_CloseMenu();
+    if (main_module_index != 14)
+      DisplaySelectMenu();
+    if (select_menu_is_open())
+      lid_pause = 0;
+    return;
+  }
+
+  /* Dungeon map. X leaves from the control state into the fade at 5. */
+  if (main_module_index == 14 && submodule_index == 3) {
+    jump_menu_exit(5);
+    return;
+  }
+
+  /* Overworld map. X leaves from the control state into the restore at 6. */
+  if (main_module_index == 14 && submodule_index == 7) {
+    if (overworld_map_state >= 1 && overworld_map_state < 6)
+      overworld_map_flags = 0;
+    jump_menu_exit(6);
+    return;
+  }
+
+  /* Flute picks a destination from the same map. Leave before A confirms it. */
+  if (main_module_index == 14 && submodule_index == 10) {
+    if (overworld_map_state >= 6)
+      return;
+    if (overworld_map_state == 0)
+      return;
+    overworld_map_flags = 0;
+    submodule_index = 7;
+    INIDISP_copy = 1;
+    overworld_map_state = 6;
+    return;
+  }
+
+  if (link_can_open_select()) {
+    DisplaySelectMenu();
+    lid_pause = 0;
+  }
 }

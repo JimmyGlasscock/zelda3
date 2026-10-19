@@ -142,3 +142,9 @@ int SaveFile_LoadedSlot(void);
 int SaveFile_ConsumeFileLoad(void);
 /* While set, the save menu ignores presses so a closing button is not a confirm. */
 extern int SelectMenu_LockInput;
+/* Lid close. 1 when the select menu should be up (already open, or now requested). */
+int SelectMenu_LidClosed(void);
+/* One step toward that menu. Safe to call every frame. */
+void SelectMenu_LidStep(void);
+/* Title, file select, and soft reset are not a loaded game. */
+void SelectMenu_ForgetGame(void);
