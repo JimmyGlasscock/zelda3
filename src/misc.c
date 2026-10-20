@@ -455,8 +455,21 @@ void Sound_LoadIntroSongBank() {  // 808901
   LoadSongBank(kSoundBank_intro);
 }
 
+static uint8 s_defer_intro_songbank;
+
 void LoadOverworldSongs() {  // 808913
+  s_defer_intro_songbank = 0;
   LoadSongBank(kSoundBank_intro);
+}
+
+void DeferIntroSongBank(void) {
+  s_defer_intro_songbank = 1;
+}
+
+void LoadDeferredIntroSongBank(void) {
+  if (!s_defer_intro_songbank)
+    return;
+  LoadOverworldSongs();
 }
 
 void LoadDungeonSongs() {  // 808925

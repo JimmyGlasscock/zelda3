@@ -884,7 +884,10 @@ void Death_Func15(bool count_as_death) {  // 89f50f
     BG2VOFS_copy = 0;
     memset(save_dung_info, 0, 256 * 5);
     flag_which_music_type = 0;
-    LoadOverworldSongs();
+    /* 0xF1 fades this song out. Loading the intro bank here key-offs
+     * immediately, and the last note keeps looping. Load once the fade
+     * has happened, just before the intro theme starts. */
+    DeferIntroSongBank();
   }
 }
 

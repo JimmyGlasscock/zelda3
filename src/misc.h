@@ -43,6 +43,9 @@ void Module_MainRouting();
 void NMI_PrepareSprites();
 void Sound_LoadIntroSongBank();
 void LoadOverworldSongs();
+/* Save and quit fades the current song before the intro bank is loaded. */
+void DeferIntroSongBank(void);
+void LoadDeferredIntroSongBank(void);
 void LoadDungeonSongs();
 void LoadCreditsSongs();
 void Dungeon_LightTorch();

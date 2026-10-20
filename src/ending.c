@@ -775,8 +775,10 @@ void Intro_RunStep() {  // 8cc448
     poly_a += 3;
     if (poly_config1 < 225)
       submodule_index = 4;
-    if (poly_config1 == 113)
+    if (poly_config1 == 113) {
+      LoadDeferredIntroSongBank();
       music_control = 1;
+    }
     break;
   case 2:
     if (!--intro_step_timer) {
