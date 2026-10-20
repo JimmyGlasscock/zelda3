@@ -1645,7 +1645,11 @@ void Overworld_OperateCameraScroll() {  // 82bb90
   }
 
   if (dungeon_room_index == 0x181) {
-    BG1VOFS_copy2 = BG2VOFS_copy2 | 0x100;
+    /* The shadow is this layer, 256 pixels down. ORing bit 8 is that
+     * offset while the scroll stays below 0x100. Above the map the
+     * scroll is 0xFFF0, which already has the bit, and the OR drops
+     * the shadow as soon as Link climbs onto the bank. */
+    BG1VOFS_copy2 = BG2VOFS_copy2 + 0x100;
     BG1HOFS_copy2 = BG2HOFS_copy2;
   }
 }

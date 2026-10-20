@@ -2447,7 +2447,7 @@ void Credits_HandleCameraScrollControl() {  // 8eaea6
   }
 
   if (dungeon_room_index == 0x181) {
-    BG1VOFS_copy2 = BG2VOFS_copy2 | 0x100;
+    BG1VOFS_copy2 = BG2VOFS_copy2 + 0x100;
     BG1HOFS_copy2 = BG2HOFS_copy2;
   }
 }
