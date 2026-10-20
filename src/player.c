@@ -2937,7 +2937,8 @@ void LinkItem_Mirror() {  // 87a91a
     if (!CheckYButtonPress())
       return;
 
-    if (follower_indicator == 10) {
+    if (follower_indicator == 10 &&
+        !(enhanced_features0 & kFeatures0_MirrorToDarkworld)) {
       dialogue_message_index = 289;
       Main_ShowTextMessage();
       return;
@@ -2945,9 +2946,11 @@ void LinkItem_Mirror() {  // 87a91a
   }
   button_mask_b_y &= ~0x40;
 
-  if (is_standing_in_doorway || 
-      !cheatWalkThroughWalls && !(enhanced_features0 & kFeatures0_MirrorToDarkworld) && 
-      !player_is_indoors && !(overworld_screen_index & 0x40)) {
+  if (is_standing_in_doorway ||
+      (!player_is_indoors && BYTE(overworld_screen_index) >= 0x80) ||
+      (!cheatWalkThroughWalls &&
+       !(enhanced_features0 & kFeatures0_MirrorToDarkworld) &&
+       !player_is_indoors && !(overworld_screen_index & 0x40))) {
     Ancilla_Sfx2_Near(60);
     return;
   }
