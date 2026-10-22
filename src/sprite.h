@@ -35,6 +35,10 @@ typedef struct SpriteSpawnInfo {
 
 extern const uint8 kAbsorbBigKey[2];
 
+/* OAM slot to sprite_floor. 0xff means the slot is not a monster.
+ * Filled while the sprites are drawn. */
+extern uint8 sprite_oam_floor[128];
+
 typedef struct DrawMultipleData {
   int8 x, y;
   uint16 char_flags;

@@ -13,6 +13,10 @@
 #include "tile_detect.h"
 #include "sprite_main.h"
 #include "assets.h"
+uint8 sprite_oam_floor[128];
+/* Sprite index whose OAM allocations should be tagged, or -1. */
+static int noting_sprite_floor = -1;
+
 static const uint16 kOamGetBufferPos_Tab0[6] = {0x171, 0x201, 0x31, 0xc1, 0x141, 0x1d1};
 static const uint16 kOamGetBufferPos_Tab1[48] = {
    0x30,  0x50,  0x80,  0xb0,  0xe0, 0x110, 0x140, 0x170, 0x1d0, 0x1d4, 0x1dc, 0x1e0, 0x1e4, 0x1ec, 0x1f0, 0x1f8,
@@ -1108,6 +1112,7 @@ void Sprite_SpawnSecret(int k) {  // 868264
 }
 
 void Sprite_Main() {  // 868328
+  memset(sprite_oam_floor, 0xff, sizeof(sprite_oam_floor));
   if (!player_is_indoors) {
     ancilla_floor[0] = 0;
     ancilla_floor[1] = 0;
@@ -1211,9 +1216,14 @@ void Sprite_Get16BitCoords(int k) {  // 8684c1
 
 void Sprite_ExecuteSingle(int k) {  // 8684e2
   uint8 st = sprite_state[k];
-  if (st != 0)
+  int bak = noting_sprite_floor;
+
+  if (st != 0) {
+    noting_sprite_floor = sprite_floor[k];
     Sprite_TimersAndOam(k);
+  }
   kSprite_ExecuteSingle[st](k);
+  noting_sprite_floor = bak;
 }
 
 void Sprite_inactiveSprite(int k) {  // 868510
@@ -4064,6 +4074,18 @@ uint8 Oam_GetBufferPosition(uint8 num, uint8 y) {  // 8dbb0a
   }
   oam_ext_cur_ptr = 0xa20 + (pstart >> 2);
   oam_cur_ptr = 0x800 + pstart;
+  if (noting_sprite_floor >= 0) {
+    int slot = pstart >> 2;
+    int count = num >> 2;
+    int i;
+
+    for (i = 0; i < count; i++) {
+      int s = slot + i;
+
+      if ((unsigned)s < 128)
+        sprite_oam_floor[s] = (uint8)noting_sprite_floor;
+    }
+  }
   return oam_cur_ptr;
 }
 
