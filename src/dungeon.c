@@ -8951,7 +8951,12 @@ void CrystalCutscene_SpawnMaiden() {  // 9ecd48
   LoadFollowerGraphics();
   follower_indicator = 0;
   dung_floor_x_offs = BG2HOFS_copy2 - link_x_coord + 0x79;
-  dung_floor_y_offs = 0x30 - (uint8)BG1VOFS_copy2;
+  // Screen row 0x4C. Subtracting only BG1's low byte matches that while her
+  // page and the scroll's page match. The camera can rest CAMERA_PAD_Y above
+  // a page-aligned bound (Gargoyle's Domain does, at Blind), so the low byte
+  // is 0xF0 and the high byte has stepped back. The byte subtraction wraps,
+  // she is placed a screen too low, and the off-screen check removes her.
+  dung_floor_y_offs = (uint16)(((sprite_y_hi[j] << 8) | sprite_y_lo[j]) - BG1VOFS_copy2 - 0x4C);
   dung_hdr_collision_2_mirror = 1;
 }
 
