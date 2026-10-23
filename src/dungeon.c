@@ -2583,12 +2583,16 @@ void SavePalaceDeaths() {  // 80f9dd
     death_save_counter = 0;
 }
 
+/* Cleared on room load. Set when Ganon's door starts to open. */
+static int ganon_door_lit;
+
 void Dungeon_LoadRoom() {  // 81873a
   Dungeon_LoadHeader();
   dung_unk6 = 0;
 
   dung_hdr_collision_2_mirror = dung_hdr_collision_2;
   dung_hdr_collision_2_mirror_PADDING = dung_hdr_tag[0];
+  ganon_door_lit = 0;
   dung_some_subpixel[0] = 0x30;
   dung_some_subpixel[1] = 0xff;
   dung_floor_move_flags = 0;
@@ -7865,6 +7869,13 @@ void Module07_1A_RoomDraw_OpenTriforceDoor_bounce() {  // 829916
     sound_effect_ambient = 21;
     link_force_hold_sword_up = 0;
     link_cant_change_direction = 0;
+    /* The last phase put the torches out. Opening the door is the
+     * fully lit room, and it stays lit after the animation ends. */
+    ganon_door_lit = 1;
+    dung_num_lit_torches = 3;
+    hdr_dungeon_dark_with_lantern = 0;
+    overworld_fixed_color_plusminus = 0;
+    Dungeon_ApproachFixedColor_variable(0);
   }
   flag_is_link_immobilized = 0;
   if (++subsubmodule_index & 3)
@@ -8881,6 +8892,11 @@ void LayerEffect_Ganon() {  // 8affa4
   int count = 0;
   for (int i = 0; i < 16; i++)
     count += (dung_object_tilemap_pos[i] & 0x8000) != 0;
+
+  /* Two lit torches is this room's full brightness. The open door keeps
+   * that after Ganon is gone, including once control comes back. */
+  if (ganon_door_lit)
+    count = 2;
 
   byte_7E04C5 = count;
   if (count == 0) {
