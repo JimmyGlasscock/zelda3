@@ -2490,7 +2490,9 @@ static int Text_FastForwardPrompt(int ff, int filled, int close_box) {
 }
 
 void RenderText_Draw_MessageCharacters() {  // 8ec984
-  int ff = text_boxless && (joypad1L_last & kJoypadL_A) != 0;
+  /* The triforce speech keeps the scripted scroll, even while A is held. */
+  int ff = text_boxless && main_module_index != 25 &&
+      (joypad1L_last & kJoypadL_A) != 0;
   int filled = 0;
   int guard = 0;
   int continue_ff = 0;
