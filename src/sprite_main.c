@@ -13638,7 +13638,16 @@ void RetreatBat_Draw(int k) {  // 9af833
   oam_cur_ptr = 0x960;
   oam_ext_cur_ptr = 0xa78;
   int j = sprite_D[k] * 4 + sprite_graphics[k];
-  Sprite_DrawMultiple(k, &kRetreatBat_Dmds[kOffs[j]], kCount[j], NULL);
+  int n = kCount[j];
+  Sprite_DrawMultiple(k, &kRetreatBat_Dmds[kOffs[j]], n, NULL);
+  /* In front of the pyramid until the crash opens the hole. The timer
+   * is already counted down for this frame, and the hole is created once
+   * it hits 9, so the following frames sit behind the stone. */
+  if (sprite_ai_state[k] > 2 ||
+      (sprite_ai_state[k] == 2 && sprite_delay_aux1[k] < 9)) {
+    for (int i = 0; i < n; i++)
+      oam_buf[(0x960 - 0x800) / 4 + i].flags &= (uint8)~0x30;
+  }
 }
 
 void DrinkingGuy_Draw(int k) {  // 9af88c
