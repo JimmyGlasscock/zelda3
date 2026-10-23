@@ -2414,7 +2414,9 @@ uint8 Text_FilterPlayerNameCharacters(uint8 a) {  // 8ec639
   return a;
 }
 
-/* Holding A races boxless text only. Bordered dialogue is unchanged. */
+/* Holding A speeds boxless text: one letter a frame, and scripted pauses
+   are skipped. A tap no longer prints the rest of the line. Bordered
+   dialogue is unchanged. */
 enum { kTextFfDwell = 20 };
 
 void Text_Render() {  // 8ec8d9
@@ -2509,6 +2511,9 @@ RESTART:;
 
   switch (TEXTCMD_CMD(cmd)) {
   case kTextCmd_IsLetter:
+    /* Held A skips the delay and draws this letter now. It does not draw
+       the letters after it; those wait for later frames. Speed 0 is the
+       scripted instant run, and still prints in one frame. */
     if (!ff && vwf_line_speed_cur >= 2) {
       vwf_line_speed_cur--;
       break;
@@ -2516,7 +2521,7 @@ RESTART:;
     VWF_RenderSingle(TEXTCMD_PARAM(cmd));
     dialogue_msg_read_pos += 1 + TEXTCMD_MULTIBYTE(cmd);
     filled = 1;
-    if (ff || vwf_line_speed_cur == 0)
+    if (vwf_line_speed_cur == 0)
       goto RESTART;
     break;
   case kTextCmd_NextPic:  // RenderText_Draw_NextImage
