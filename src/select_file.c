@@ -243,6 +243,13 @@ void SelectFile_Func16() {
   static const uint8 kSelectFile_Func16_FaerieY[2] = {159, 175};
   FileSelect_DrawFairy(0x1c, kSelectFile_Func16_FaerieY[selectfile_R16]);
 
+  if (filtered_joypad_H & 0x80) {  // B button acts as "quit"
+    sound_effect_1 = 0x2c;
+    ReturnToFileSelect();
+    subsubmodule_index = 0;
+    return;
+  }
+
   int k = selectfile_R16;
   if (filtered_joypad_H & 0x2c) {
     k += (filtered_joypad_H & 0x24) ? 1 : -1;
@@ -583,6 +590,12 @@ void CopyFile_SelectionAndBlinker() {  // 8cd13f
   }
   FileSelect_DrawFairy(kCopyFile_SelectionAndBlinker_FaerieX[selectfile_R16], kCopyFile_SelectionAndBlinker_FaerieY[selectfile_R16]);
 
+  if (filtered_joypad_H & 0x80) {  // B button acts as "quit"
+    sound_effect_1 = 0x2c;
+    ReturnToFileSelect();
+    return;
+  }
+
   uint8 a = (filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xfc;
   if (a & 0x2c) {
     uint8 k = selectfile_R16;
@@ -683,6 +696,13 @@ void CopyFile_TargetSelectionAndBlink() {  // 8cd27b
 
   FileSelect_DrawFairy(kCopyFile_TargetSelectionAndBlink_FaerieX[selectfile_R16], kCopyFile_TargetSelectionAndBlink_FaerieY[selectfile_R16]);
 
+  if (filtered_joypad_H & 0x80) {  // B button acts as "quit"
+    sound_effect_1 = 0x2c;
+    ReturnToFileSelect();
+    selectfile_R16 = 0;
+    return;
+  }
+
   uint8 a = (filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xfc;
   if (a & 0x2c) {
     uint8 k = selectfile_R16;
@@ -717,6 +737,13 @@ void CopyFile_TargetSelectionAndBlink() {  // 8cd27b
 void CopyFile_HandleConfirmation() {  // 8cd371
   static const uint8 kCopyFile_HandleConfirmation_FaerieY[2] = {0x9f, 0xaf};
   FileSelect_DrawFairy(0x1c, kCopyFile_HandleConfirmation_FaerieY[selectfile_R16]);
+
+  if (filtered_joypad_H & 0x80) {  // B button acts as "quit"
+    sound_effect_1 = 0x2c;
+    ReturnToFileSelect();
+    selectfile_R16 = 0;
+    return;
+  }
 
   uint8 a = (filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xfc;
   if (a & 0x2c) {
@@ -817,6 +844,12 @@ void KILLFile_ChooseTarget() {  // 8cd4ba
   }
 
   FileSelect_DrawFairy(kKILLFile_ChooseTarget_FaerieX[selectfile_R16], kKILLFile_ChooseTarget_FaerieY[selectfile_R16]);
+
+  if (filtered_joypad_H & 0x80) {  // B button acts as "quit"
+    sound_effect_1 = 0x2c;
+    ReturnToFileSelect();
+    return;
+  }
 
   int k = selectfile_R16;
   if (filtered_joypad_H & 0x2c) {
