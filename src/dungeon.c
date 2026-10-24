@@ -7935,14 +7935,24 @@ void Module11_DungeonFallingEntrance() {  // 829af9
     if (INIDISP_copy == 15)
       subsubmodule_index++;
   case 5:
+    /* Case 3 loaded this room's sprites, then the fall never ran them, so
+     * enemies stayed at the init state until Link landed and module 7 began.
+     * The cached set is the overworld sprites from the screen we fell off.
+     * Draw sprites before Link, matching Module07_Dungeon. */
+    alt_sprites_flag = 0;
+    Dungeon_HandleLayerEffect();
+    Sprite_Main();
     HandleDungeonLandingFromPit();
     if (submodule_index)
-      return;
+      break;
     main_module_index = 7;
     flag_skip_call_tag_routines++;
     Dungeon_PlayBlipAndCacheQuadrantVisits();
     ResetThenCacheRoomEntryProperties();
-    music_control = queued_music_control;
+    /* Ganon's prep starts track 0x1e during the fall. NMI copies it to
+     * music_unk1 and clears music_control, so keep it over the entrance track. */
+    if (music_unk1 != 0x1e && music_control != 0x1e)
+      music_control = queued_music_control;
     last_music_control = music_unk1;
     break;
   }
