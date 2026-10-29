@@ -811,6 +811,144 @@ static void Sfx_MaybeDisableEcho(SpcPlayer *p) {
   }
 }
 
+/* Pitch at each sequencer step of the last Advance. A sound effect bends
+ * between those steps; the pitch left in the register at the end of the
+ * frame is only the last of them. */
+static SpcTimeline g_timeline;
+
+static void timeline_capture(SpcPlayer *p, int at)
+{
+  int n, i;
+
+  if (!p->dsp)
+    return;
+  n = g_timeline.count;
+  if (n >= SPC_TIMELINE)
+    return;
+  if (n && g_timeline.at[n - 1] == (uint16_t)at)
+    return;
+  g_timeline.at[n] = (uint16_t)at;
+  for (i = 0; i < 8; i++) {
+    g_timeline.pitch[i][n] = p->dsp->channel[i].pitch;
+    g_timeline.epoch[i][n] = dsp_voice_epoch[i];
+  }
+  g_timeline.count = (uint8_t)(n + 1);
+}
+
+const SpcTimeline *SpcPlayer_Timeline(void)
+{
+  return &g_timeline;
+}
+
+/* What the DSP played for a bending voice during the last Advance.
+ * 534 is one video frame at 32000 Hz. */
+#define BEND_FRAME 534
+static int8_t g_bend_pcm[8][BEND_FRAME];
+static uint16_t g_bend_n[8];
+static uint8_t g_bend_play[8];
+static uint8_t s_bend_follow[8];
+static uint8_t s_bend_zero[8];
+/* One software voice. A spin that cuts several bushes starts that
+ * many whooshes at once, and rendering each of them stalls the frame.
+ * A whoosh that lost the slot stays on the hardware for the rest of
+ * that sweep, so it does not switch paths in the middle. */
+static int s_bend_slot = -1;
+static uint8_t s_bend_skip[8];
+
+static int bend_follow(const SpcPlayer *p, int i)
+{
+  (void)p;
+  /* A slide whose pitch does not move is how rain holds a note.
+   * Length alone is not a bend, or that loop renders forever. */
+  return s_bend_follow[i] || g_timeline.bend[i];
+}
+
+static void bend_render_span(SpcPlayer *p, int at, int n)
+{
+  int i;
+
+  if (at < 0 || n <= 0 || at >= BEND_FRAME)
+    return;
+  if (at + n > BEND_FRAME)
+    n = BEND_FRAME - at;
+  for (i = 0; i < 8; i++) {
+    DspChannel *c;
+
+    if (!bend_follow(p, i))
+      continue;
+    c = &p->dsp->channel[i];
+    if (c->pitchModulation || c->useNoise) {
+      if (s_bend_slot == i)
+        s_bend_slot = -1;
+      s_bend_follow[i] = 0;
+      continue;
+    }
+    /* The effect released the channel. Leave the music on the hardware. */
+    if (!(p->is_chan_on & (1u << i)) &&
+        !(c->adsrState == 4 && c->gain != 0)) {
+      if (s_bend_slot == i)
+        s_bend_slot = -1;
+      s_bend_follow[i] = 0;
+      continue;
+    }
+    if (s_bend_skip[i])
+      continue;
+    if (s_bend_slot >= 0 && s_bend_slot != i) {
+      s_bend_skip[i] = 1;
+      continue;
+    }
+    s_bend_slot = i;
+    if (!s_bend_zero[i]) {
+      memset(g_bend_pcm[i], 0, BEND_FRAME);
+      s_bend_zero[i] = 1;
+    }
+    s_bend_follow[i] = 1;
+    g_bend_play[i] = 1;
+    dsp_render_voice(p->dsp, i, g_bend_pcm[i] + at, n);
+    if ((uint16_t)(at + n) > g_bend_n[i])
+      g_bend_n[i] = (uint16_t)(at + n);
+  }
+}
+
+static void bend_follow_end(const SpcPlayer *p)
+{
+  int i;
+
+  for (i = 0; i < 8; i++) {
+    /* Only the voice we actually rendered, and only while its pitch
+     * is still moving. Every other whoosh stays on the hardware. */
+    if (i == s_bend_slot && g_timeline.bend[i])
+      s_bend_follow[i] = 1;
+    else
+      s_bend_follow[i] = 0;
+    if (!g_timeline.bend[i])
+      s_bend_skip[i] = 0;
+  }
+  if (s_bend_slot >= 0 && !s_bend_follow[s_bend_slot])
+    s_bend_slot = -1;
+}
+
+const int8_t *SpcPlayer_BendPcm(int channel)
+{
+  if (channel < 0 || channel >= 8)
+    return 0;
+  return g_bend_pcm[channel];
+}
+
+int SpcPlayer_BendPlay(int channel)
+{
+  if (channel < 0 || channel >= 8)
+    return 0;
+  return g_bend_play[channel];
+}
+
+int SpcPlayer_BendSamples(int channel)
+{
+  if (channel < 0 || channel >= 8)
+    return 0;
+  return g_bend_n[channel];
+}
+
 static void Sfx_ChannelTick(SpcPlayer *p, Channel *c, bool is_continue) {
   uint8 cmd;
 
@@ -891,10 +1029,22 @@ static void Sfx_ChannelTick(SpcPlayer *p, Channel *c, bool is_continue) {
 note_continue:
       p->did_affect_volumepitch_flag = 0;
       if (c->pitch_slide_length) {
+        uint16 before = c->pitch;
+
         p->did_affect_volumepitch_flag = 0x80;
         Chan_DoAnyFade(&c->pitch, c->pitch_add_per_tick, c->pitch_target, --c->pitch_slide_length);
         p->cur_chan_bit = 0;  // force change through
         WritePitch(p, c, c->pitch);
+        /* A quarter-tone per tick. Less than that is a hold (rain) or
+         * a drift the hardware channel already snaps cleanly. */
+        {
+          int delta = (int)c->pitch - (int)before;
+
+          if (delta < 0)
+            delta = -delta;
+          if (delta >= 0x40)
+            g_timeline.bend[c->index] = 1;
+        }
       } else if (c->sfx_note_length_left == 2) {
         Dsp_Write(p, KOF, p->current_bit);
       }
@@ -1236,6 +1386,28 @@ static void SpcPlayer_Run(SpcPlayer *p, int mix) {
   assert(p->timer_cycles <= 64);
   if (mix)
     assert(p->dsp->sampleOffset <= 534);
+  if (!mix) {
+    g_timeline.count = 0;
+    memset(g_timeline.bend, 0, sizeof g_timeline.bend);
+    memset(g_bend_play, 0, sizeof g_bend_play);
+    memset(g_bend_n, 0, sizeof g_bend_n);
+    memset(s_bend_zero, 0, sizeof s_bend_zero);
+    if (s_bend_slot < 0 || !s_bend_follow[s_bend_slot]) {
+      int slot = -1;
+
+      for (int i = 0; i < 8; i++) {
+        if (s_bend_follow[i]) {
+          slot = i;
+          break;
+        }
+      }
+      s_bend_slot = slot;
+    }
+    for (int i = 0; i < 8; i++) {
+      if (i != s_bend_slot)
+        s_bend_follow[i] = 0;
+    }
+  }
 
   for (;;) {
     int have, n;
@@ -1244,6 +1416,11 @@ static void SpcPlayer_Run(SpcPlayer *p, int mix) {
       Spc_Loop_Part2(p, p->timer_cycles >> 6);
       Spc_Loop_Part1(p);
       p->timer_cycles &= 63;
+      if (!mix)
+        timeline_capture(p, generated);
+    } else if (!mix && g_timeline.count == 0) {
+      /* Samples before the next tick still use this pitch. */
+      timeline_capture(p, generated);
     }
 
     have = mix ? p->dsp->sampleOffset : generated;
@@ -1261,6 +1438,7 @@ static void SpcPlayer_Run(SpcPlayer *p, int mix) {
         dsp_cycle(p->dsp);
 #endif
     } else {
+      bend_render_span(p, generated, n);
       generated += n;
     }
 
@@ -1268,6 +1446,8 @@ static void SpcPlayer_Run(SpcPlayer *p, int mix) {
     if (have == 534)
       break;
   }
+  if (!mix)
+    bend_follow_end(p);
 }
 
 void SpcPlayer_Advance(SpcPlayer *p) {

@@ -147,3 +147,26 @@ void SpcPlayer_Initialize(SpcPlayer *p);
 void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data);
 void SpcPlayer_CopyVariablesFromRam(SpcPlayer *p);
 void SpcPlayer_CopyVariablesToRam(SpcPlayer *p);
+
+/* Pitch of each voice at each sequencer step of the last Advance.
+ * Twelve covers the sample at the start of the frame plus every
+ * 64-sample tick. bend is set when a sound effect slid that voice. */
+#define SPC_TIMELINE 12
+
+typedef struct SpcTimeline {
+  uint16_t at[SPC_TIMELINE];
+  uint16_t pitch[8][SPC_TIMELINE];
+  uint8_t epoch[8][SPC_TIMELINE];
+  uint8_t bend[8];
+  uint8_t count;
+} SpcTimeline;
+
+const SpcTimeline *SpcPlayer_Timeline(void);
+
+/* PCM8 for one voice over the last Advance, valid when BendPlay is set.
+ * BendSamples is how many of those bytes are the sound; the rest of the
+ * frame was not this voice. The samples are what the DSP would have
+ * played, with the mixer’s volume curve already applied. */
+const int8_t *SpcPlayer_BendPcm(int channel);
+int SpcPlayer_BendPlay(int channel);
+int SpcPlayer_BendSamples(int channel);

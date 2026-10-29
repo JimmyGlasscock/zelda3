@@ -405,6 +405,72 @@ static int16_t dsp_getSample(Dsp* dsp, DspChannel* c, int sampleNum, int offset)
   out = out < -0x8000 ? -0x8000 : (out > 0x7fff ? 0x7fff : out); // clamp 16-bit
   return out >> 1;
 }
+
+static int dsp_iabs(int v)
+{
+  return v < 0 ? -v : v;
+}
+
+/* Same collapse as the ARM7 voice_level: each side saturates at 127,
+ * then the pair becomes one channel volume. */
+static int dsp_bend_level(int gain, int vol_l, int vol_r, int master_l, int master_r)
+{
+  int l = (gain * dsp_iabs(vol_l) * dsp_iabs(master_l)) >> 16;
+  int r = (gain * dsp_iabs(vol_r) * dsp_iabs(master_r)) >> 16;
+  int sum;
+
+  if (l < 0)
+    l = 0;
+  if (r < 0)
+    r = 0;
+  if (l > 127)
+    l = 127;
+  if (r > 127)
+    r = 127;
+  sum = l + r;
+  if (!sum)
+    return 0;
+  if (sum > 126)
+    return 127;
+  return (sum * 128) / 127;
+}
+
+void dsp_render_voice(Dsp *dsp, int ch, int8_t *dst, int n)
+{
+  DspChannel *c = &dsp->channel[ch];
+  int full = dsp_bend_level(0x7ff, c->volumeL, c->volumeR,
+                            dsp->masterVolumeL, dsp->masterVolumeR);
+  int prev = -1;
+  int mul = 0;
+  int i;
+
+  for (i = 0; i < n; i++) {
+    int g, s;
+
+    dsp_cycleChannel(dsp, c, ch);
+    g = c->gain;
+    if (g != prev) {
+      int now = dsp_bend_level(g, c->volumeL, c->volumeR,
+                               dsp->masterVolumeL, dsp->masterVolumeR);
+
+      prev = g;
+      /* sampleOut = (S * gain) >> 11, so S >> 7 = sampleOut * 16 / gain.
+       * Playback uses the full-open channel volume, so scale by how
+       * loud that volume is now versus wide open. The divide runs when
+       * the envelope steps, not on every sample. */
+      if (!g || !now || !full)
+        mul = 0;
+      else
+        mul = (int)(((unsigned)16 * (unsigned)now << 16) / (unsigned)(g * full));
+    }
+    s = (int)(((int64_t)c->sampleOut * mul) >> 16);
+    if (s > 127)
+      s = 127;
+    if (s < -128)
+      s = -128;
+    dst[i] = (int8_t)s;
+  }
+}
 #endif
 
 static void dsp_decodeBrr(Dsp* dsp, int ch) {

@@ -99,6 +99,10 @@ void dsp_cycle(Dsp* dsp);
 uint8_t dsp_read(Dsp* dsp, uint8_t adr);
 void dsp_write(Dsp* dsp, uint8_t adr, uint8_t val);
 void dsp_getSamples(Dsp* dsp, int16_t* sampleData, int samplesPerFrame, int numChannels);
+/* Advance one voice the way dsp_cycleChannel does, and store PCM8.
+ * The byte is what the mixer would play at this envelope, including
+ * where the channel volume has already hit the hardware maximum. */
+void dsp_render_voice(Dsp *dsp, int ch, int8_t *dst, int n);
 void dsp_saveload(Dsp *dsp, SaveLoadFunc *func, void *ctx);
 
 #endif
