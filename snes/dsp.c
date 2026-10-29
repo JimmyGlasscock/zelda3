@@ -457,11 +457,21 @@ void dsp_render_voice(Dsp *dsp, int ch, int8_t *dst, int n)
       /* sampleOut = (S * gain) >> 11, so S >> 7 = sampleOut * 16 / gain.
        * Playback uses the full-open channel volume, so scale by how
        * loud that volume is now versus wide open. The divide runs when
-       * the envelope steps, not on every sample. */
-      if (!g || !now || !full)
-        mul = 0;
-      else
-        mul = (int)(((unsigned)16 * (unsigned)now << 16) / (unsigned)(g * full));
+       * the envelope steps, not on every sample.
+       * A sustain rate of 0 with the level pinned at the top is a grunt
+       * or a whoosh. Those samples sit lower in the byte than a punch
+       * effect, and the channel volume is already maxed, so one more
+       * bit brings them up. */
+      {
+        unsigned shift = 16;
+
+        if (c->adsrRates[2] == 0 && c->sustainLevel >= 0x800)
+          shift = 32;
+        if (!g || !now || !full)
+          mul = 0;
+        else
+          mul = (int)((shift * (unsigned)now << 16) / (unsigned)(g * full));
+      }
     }
     s = (int)(((int64_t)c->sampleOut * mul) >> 16);
     if (s > 127)
