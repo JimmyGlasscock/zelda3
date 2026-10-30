@@ -1458,23 +1458,59 @@ void SpcPlayer_GenerateSamples(SpcPlayer *p) {
   SpcPlayer_Run(p, 1);
 }
 
+/* Directory at 0x3C00 and BRR from 0x4000. The mixer re-decodes every
+ * sample when the generation changes, so a song bank that only replaces
+ * the music must not look like a new sample set. */
+static int upload_overlaps_samples(unsigned target, unsigned numbytes) {
+  unsigned end = target + numbytes;
+
+  if (end < target)
+    return 1;
+  if (target < 0x3c80 && end > 0x3c00)
+    return 1;
+  if (target < 0xc000 && end > 0x4000)
+    return 1;
+  return 0;
+}
+
 void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data) {
+  int samples_changed = 0;
+
   Dsp_Write(p, EVOLL, 0);
   Dsp_Write(p, EVOLR, 0);
   Dsp_Write(p, KOF, 0xff);
 
   for (;;) {
     /* Asset chunks are not aligned. ARM9 LDRH ignores bit 0, so a
-     * halfword load here drops the rest of the song and the SFX
-     * parser never sees the terminator. */
-    int numbytes = data[0] | data[1] << 8;
+     * halfword load of the header drops the rest of the song. */
+    unsigned numbytes = data[0] | data[1] << 8;
+    unsigned target;
     if (numbytes == 0)
       break;
-    int target = data[2] | data[3] << 8;
+    target = data[2] | data[3] << 8;
     data += 4;
-    do {
-      p->ram[target++ & 0xffff] = *data++;
-    } while (--numbytes);
+    if (target + numbytes > 0x10000) {
+      unsigned n = numbytes;
+      unsigned t = target;
+      const uint8_t *s = data;
+      do {
+        uint8_t b = *s++;
+        if (p->ram[t & 0xffff] != b) {
+          p->ram[t & 0xffff] = b;
+          if ((t & 0xffff) >= 0x4000 || ((t & 0xffff) >= 0x3c00 && (t & 0xffff) < 0x3c80))
+            samples_changed = 1;
+        }
+        t++;
+      } while (--n);
+    } else if (upload_overlaps_samples(target, numbytes)) {
+      if (memcmp(p->ram + target, data, numbytes) != 0) {
+        memcpy(p->ram + target, data, numbytes);
+        samples_changed = 1;
+      }
+    } else {
+      memcpy(p->ram + target, data, numbytes);
+    }
+    data += numbytes;
   }
   p->pause_music_ctr = 0;
   p->port_to_snes[0] = 0;
@@ -1483,7 +1519,8 @@ void SpcPlayer_Upload(SpcPlayer *p, const uint8_t *data) {
   p->port3_active = 0;
   p->is_chan_on = 0;
   p->input_ports[0] = p->input_ports[1] = p->input_ports[2] = p->input_ports[3] = 0;
-  g_spc_song_generation++;
+  if (samples_changed)
+    g_spc_song_generation++;
 }
 
 // =======================================
