@@ -898,7 +898,7 @@ void Module17_SaveAndQuit() {  // 89f79f
     if (!--INIDISP_copy) {
       MOSAIC_copy = 15;
       subsubmodule_index = 1;
-      Death_Func15(false);
+      Death_Func15(false); /* still alive: not a Game Over */
     }
     break;
   }

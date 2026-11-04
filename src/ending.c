@@ -2465,11 +2465,14 @@ void EndSequence_32() {  // 8ebc6d
   hud_palette = 1;
   Palette_Load_HUD();
   flag_update_cgram_in_nmi++;
-  deaths_per_palace[4] = 0;
-  deaths_per_palace[13] += death_save_counter;
-  int sum = deaths_per_palace[13];
+  /* Palace 4 keeps a copy of the running count and is not cleared on
+   * the way out, so it would be added twice. The last credits figure
+   * and the file-select number are this total. */
+  deaths_per_palace(4) = 0;
+  deaths_per_palace(13) += death_save_counter;
+  int sum = deaths_per_palace(13);
   for (int i = 12; i >= 0; i--)
-    sum += deaths_per_palace[i];
+    sum += deaths_per_palace(i);
   death_var2 = sum;
   death_save_counter = 0;
   link_health_current = kHealthAfterDeath[link_health_capacity >> 3];
@@ -2583,7 +2586,7 @@ void Credits_AddNextAttribution() {  // 8ebe24
       dst[0] = swap16(R16 + 0x19);
       dst[1] = 0x500;
 
-      uint16 deaths = deaths_per_palace[kEnding_Func9_Tab2[ending_which_dung >> 1]];
+      uint16 deaths = deaths_per_palace(kEnding_Func9_Tab2[ending_which_dung >> 1]);
       if (deaths >= 1000)
         deaths = 999;
 

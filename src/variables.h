@@ -1124,9 +1124,13 @@
 #define saved_tagalong_indoors (*(uint8*)(g_ram+0xF3D1))
 #define saved_tagalong_floor (*(uint8*)(g_ram+0xF3D2))
 #define follower_dropped (*(uint8*)(g_ram+0xF3D3))
-#define deaths_per_palace ((uint16*)(g_ram+0xF3E7))
-#define death_save_counter (*(uint16*)(g_ram+0xF403))
-#define death_var2 (*(uint16*)(g_ram+0xF405))
+/* $7EF3E7, $7EF403 and $7EF405 are odd. A uint16* on ARM9 ignores that
+ * low bit, so the ending wrote the total onto $7EF404 and the file
+ * select read $FF00 from the untouched "still playing" marker and
+ * always showed 999. WORD() keeps the real bytes. */
+#define deaths_per_palace(i) WORD(g_ram[0xF3E7 + (i) * 2])
+#define death_save_counter WORD(g_ram[0xF403])
+#define death_var2 WORD(g_ram[0xF405])
 #define word_7EF4FE (*(uint16*)(g_ram+0xF4FE))
 #define pots_revealed_in_room ((uint16*)(g_ram+0xF580))
 #define memorized_tile_addr ((uint16*)(g_ram+0xF800))

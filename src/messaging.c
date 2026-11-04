@@ -806,11 +806,12 @@ do_inc:
   if (!((filtered_joypad_L & 0xc0 | filtered_joypad_H) & 0xd0))
     return;
   sound_effect_1 = 44;
-  // Only death with save/continue or save/quit counts as a death
-  Death_Func15(subsubmodule_index != 2);
+  /* Continue, save and quit, and continue-without-saving are all a
+   * Game Over. The pause-menu save calls this with false. */
+  Death_Func15(true);
 }
 
-void Death_Func15(bool count_as_death) {  // 89f50f
+void Death_Func15(bool game_over) {  // 89f50f
   music_control = 0xf1;
   if (player_is_indoors)
     Dungeon_FlagRoomData_Quadrants();
@@ -832,7 +833,8 @@ void Death_Func15(bool count_as_death) {  // 89f50f
   if (i != 0xff)
     link_keys_earned_per_dungeon[(i == 2 ? 0 : i) >> 1] = link_num_keys;
   Sprite_ResetAll();
-  if (death_var2 == 0xffff && (!(enhanced_features0 & kFeatures0_MiscBugFixes) || count_as_death))
+  /* 0xFFFF means the ending has not stored the total yet. */
+  if (death_var2 == 0xffff && game_over)
     death_save_counter++;
   death_var5++;
   if (subsubmodule_index != 1) {

@@ -35,7 +35,7 @@ void Death_Func4();
 void Animate_GAMEOVER_Letters_bounce();
 void GameOver_Finalize_GAMEOVR();
 void GameOver_SaveAndOrContinue();
-void Death_Func15(bool count_as_death);
+void Death_Func15(bool game_over);
 void GameOver_AnimateChoiceFairy();
 void GameOver_InitializeRevivalFairy();
 void RevivalFairy_Main_bounce();
