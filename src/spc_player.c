@@ -854,6 +854,9 @@ static uint8_t s_bend_zero[8];
  * that sweep, so it does not switch paths in the middle. */
 static int s_bend_slot = -1;
 static uint8_t s_bend_skip[8];
+/* Frames to keep rendering after a jump. A guard shout note is two
+ * frames, and the next jump arrives before this runs out. */
+static uint8_t s_bend_hold[8];
 
 static int bend_follow(const SpcPlayer *p, int i)
 {
@@ -861,6 +864,23 @@ static int bend_follow(const SpcPlayer *p, int i)
   /* A slide whose pitch does not move is how rain holds a note.
    * Length alone is not a bend, or that loop renders forever. */
   return s_bend_follow[i] || g_timeline.bend[i];
+}
+
+/* The hardware channel has one pitch per frame. A new note two
+ * octaves away, such as the guard shout's thump then buzz, would
+ * play the later pitch across the earlier one. Render the voice
+ * instead, and keep rendering through the short notes that follow. */
+static void bend_on_pitch_jump(int channel, uint16 before, uint16 after)
+{
+  unsigned lo = before < after ? before : after;
+  unsigned hi = before < after ? after : before;
+
+  if (lo && hi >= lo * 4u) {
+    g_timeline.bend[channel] = 1;
+    s_bend_hold[channel] = 6;
+  } else if (s_bend_hold[channel]) {
+    s_bend_hold[channel] = 6;
+  }
 }
 
 static void bend_render_span(SpcPlayer *p, int at, int n)
@@ -881,6 +901,7 @@ static void bend_render_span(SpcPlayer *p, int at, int n)
       if (s_bend_slot == i)
         s_bend_slot = -1;
       s_bend_follow[i] = 0;
+      s_bend_hold[i] = 0;
       continue;
     }
     /* The effect released the channel. Leave the music on the hardware. */
@@ -889,6 +910,7 @@ static void bend_render_span(SpcPlayer *p, int at, int n)
       if (s_bend_slot == i)
         s_bend_slot = -1;
       s_bend_follow[i] = 0;
+      s_bend_hold[i] = 0;
       continue;
     }
     if (s_bend_skip[i])
@@ -916,13 +938,17 @@ static void bend_follow_end(const SpcPlayer *p)
 
   for (i = 0; i < 8; i++) {
     /* Only the voice we actually rendered, and only while its pitch
-     * is still moving. Every other whoosh stays on the hardware. */
-    if (i == s_bend_slot && g_timeline.bend[i])
+     * is still moving or a jumped note is still ringing. Every other
+     * whoosh stays on the hardware. */
+    if (i == s_bend_slot && (g_timeline.bend[i] || s_bend_hold[i]))
       s_bend_follow[i] = 1;
     else
       s_bend_follow[i] = 0;
-    if (!g_timeline.bend[i])
+    if (!g_timeline.bend[i]) {
       s_bend_skip[i] = 0;
+      if (s_bend_hold[i])
+        s_bend_hold[i]--;
+    }
   }
   if (s_bend_slot >= 0 && !s_bend_follow[s_bend_slot])
     s_bend_slot = -1;
@@ -1023,9 +1049,13 @@ static void Sfx_ChannelTick(SpcPlayer *p, Channel *c, bool is_continue) {
     } else if (cmd == 0xff) {
       p->sfx_sound_ptr_cur = c->sfx_sound_ptr = WORD(p->ram[0x17C0 + (c->sfx_which_sound - 1) * 2]);
     } else {
+      uint16 before_dsp = p->dsp ? p->dsp->channel[c->index].pitch : 0;
+
       PlayNote(p, c, cmd);
       Write_KeyOn(p, p->current_bit);
       c->sfx_note_length_left = c->sfx_note_length;
+      if (p->dsp)
+        bend_on_pitch_jump(c->index, before_dsp, p->dsp->channel[c->index].pitch);
 note_continue:
       p->did_affect_volumepitch_flag = 0;
       if (c->pitch_slide_length) {
@@ -1042,8 +1072,10 @@ note_continue:
 
           if (delta < 0)
             delta = -delta;
-          if (delta >= 0x40)
+          if (delta >= 0x40) {
             g_timeline.bend[c->index] = 1;
+            s_bend_hold[c->index] = 6;
+          }
         }
       } else if (c->sfx_note_length_left == 2) {
         Dsp_Write(p, KOF, p->current_bit);
